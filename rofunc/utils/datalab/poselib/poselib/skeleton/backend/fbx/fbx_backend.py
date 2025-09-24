@@ -50,6 +50,8 @@ except ImportError as e:
 
 
 def fbx_to_npy(file_name_in, root_joint_name, fps):
+    print("fbx to npy")
+    print(root_joint_name)
     """
     This function reads in an fbx file, and saves the relevant info to a numpy array
 
@@ -106,6 +108,7 @@ def fbx_to_npy(file_name_in, root_joint_name, fps):
     if not found_root_node:
         raise RuntimeError("No root joint found!! Exiting")
 
+    print("root joint", root_joint.GetName())
     joint_list, joint_names, parents = _get_skeleton(root_joint)
 
     """
@@ -175,7 +178,7 @@ def _get_frame_count(fbx_scene):
     anim_range = anim_stack.GetLocalTimeSpan()
     duration = anim_range.GetDuration()
     fps = duration.GetFrameRate(duration.GetGlobalTimeMode())
-    frame_count = duration.GetFrameCount(True)
+    frame_count = duration.GetFrameCount()
 
     return anim_range, frame_count, fps
 
@@ -237,6 +240,8 @@ def _get_animation_curve(joint, fbx_scene):
 def _get_skeleton(root_joint):
     # Do a depth first search of the skeleton to extract all the joints
     joint_list = [root_joint]
+    print("_get_skeleton")
+    print(root_joint.GetName())
     joint_names = [root_joint.GetName()]
     parents = [-1]  # -1 means no parent
 
@@ -251,6 +256,7 @@ def _get_skeleton(root_joint):
             child = joint.GetChild(child_index)
             joint_list.append(child)
             joint_names.append(child.GetName())
+            print(child.GetName())
             parents.append(pos)
             append_children(child, len(parents) - 1)
 

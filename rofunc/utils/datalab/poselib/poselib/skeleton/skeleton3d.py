@@ -106,8 +106,11 @@ class SkeletonTree(Serializable):
         :type local_translation: Tensor
         :param local_orientation: a 4d vector that gives local orientation information
         """
+
         ln, lp, ll = len(node_names), len(parent_indices), len(local_translation)
         assert len(set((ln, lp, ll))) == 1
+        # print("in init")
+        # print(node_names)
         self._node_names = node_names
         self._parent_indices = parent_indices.long()
         self._local_translation = local_translation
@@ -201,6 +204,7 @@ class SkeletonTree(Serializable):
         :return: The skeleton tree constructed from the mjcf file
         :rtype: SkeletonTree
         """
+        # print("FROM MJCF")
         tree = ET.parse(path)
         xml_doc_root = tree.getroot()
         xml_world_body = xml_doc_root.find("worldbody")
@@ -223,11 +227,18 @@ class SkeletonTree(Serializable):
             # if ('virtual' not in node_name and 'root' not in node_name and 'index_knuckle' not in node_name and
             #         'middle_knuckle' not in node_name and 'ring_knuckle' not in node_name and 'little_knuckle'
             #         not in node_name):
+            # print("in add xml mode")
+            # print(node_name)
             node_names.append(node_name)
             parent_indices.append(parent_index)
-            pos = np.fromstring(xml_node.attrib.get("pos"), dtype=float, sep=" ")
-            quat = np.fromstring(xml_node.attrib.get("quat") if "quat" in xml_node.attrib.keys() else "1 0 0 0",
-                                 dtype=float, sep=" ")
+            # get 'pos' attribute, providing a default "0 0 0" string if it's missing
+            pos_str = xml_node.attrib.get("pos", "0 0 0")
+            pos = np.fromstring(pos_str, dtype=float, sep=" ")
+            # get 'quat' attribute, providing a default "1 0 0 0" string if it's missing
+            quat_str = xml_node.attrib.get("quat", "1 0 0 0")
+            quat = np.fromstring(quat_str, dtype=float, sep=" ")
+            # quat = np.fromstring(xml_node.attrib.get("quat") if "quat" in xml_node.attrib.keys() else "1 0 0 0",
+                                 # dtype=float, sep=" ")
             local_translation.append(pos)
             local_orientation.append(quat)
             curr_index = node_index
@@ -235,8 +246,14 @@ class SkeletonTree(Serializable):
             try:
                 for next_node in xml_node.findall("body"):
                     node_index = _add_xml_node(next_node, curr_index, node_index)
+            # except Exception as e:
+            #     rf.logger.beauty_print(f"Error in parsing {node_name}: {e}", type="error")
             except Exception as e:
                 rf.logger.beauty_print(f"Error in parsing {node_name}: {e}", type="error")
+                # Add a print statement here to see if this is the node causing the issue
+                print(f"DEBUG: Exception occurred for node '{node_name}'. Current lengths: "
+                f"node_names={len(node_names)}, parent_indices={len(parent_indices)}, "
+                f"local_translation={len(local_translation)}, local_orientation={len(local_orientation)}")
             return node_index
 
         _add_xml_node(xml_body_root, -1, 0)
@@ -397,7 +414,12 @@ class SkeletonState(Serializable):
 
     @property
     def rotation(self):
+        # print("INSIDE ROTATION")
+        # print(self)
+        # print(self.num_joints)
+        # print(self.skeleton_tree)
         if not hasattr(self, "_rotation"):
+            # print("IF NOT")
             self._rotation = self.tensor[..., : self.num_joints * 4].reshape(
                 *(self.tensor.shape[:-1] + (self.num_joints, 4))
             )
@@ -872,6 +894,10 @@ class SkeletonState(Serializable):
         reduced_target_skeleton_tree = target_skeleton_tree.keep_nodes_by_names(
             list(joint_mapping_inv)
         )
+        print(f"DEBUG: Before calling _remapped_to:")
+        print(f"DEBUG: Source Skeleton (FBX) num_joints: {joint_mapping}")
+        print(f"DEBUG: Target Skeleton (G1) num_joints: {target_skeleton_tree}")
+        print(f"DEBUG: Reduced Target Skeleton (G1) num_joints: {reduced_target_skeleton_tree}")
         n_joints = (
             len(joint_mapping),
             len(self.skeleton_tree),
@@ -1557,6 +1583,7 @@ class SkeletonMotion(SkeletonState):
         :type root_trans_index: int, optional, default=0 or the root joint in the parsed skeleton
         :rtype: SkeletonMotion
         """
+        print("Skeleton Motion")
         joint_names, joint_parents, transforms, fps = fbx_to_array(
             fbx_file_path, root_joint, fps
         )
@@ -1574,6 +1601,8 @@ class SkeletonMotion(SkeletonState):
             local_translation = transform_translation(local_transform).reshape(
                 -1, len(joint_parents), 3
             )[0]
+            # print("skeleton tree is None")
+            # print(joint_names)
             skeleton_tree = SkeletonTree(joint_names, joint_parents, local_translation)
         skeleton_state = SkeletonState.from_rotation_and_root_translation(
             skeleton_tree, r=local_rotation, t=root_translation, is_local=True

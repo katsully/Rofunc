@@ -1,0 +1,42 @@
+using python 3.10 OR 3.7
+
+conda env
+
+update setup.py depending on your python version
+
+python -m pip install --upgrade pip setuptools wheel
+pip install -e .
+pip install https://github.com/Skylark0924/Rofunc/releases/download/v0.0.2.3/pbdlib-0.1-py3-none-any.whl
+
+
+for python 3.7 you may get the error
+  File "C:\Users\Kat.Sullivan\AppData\Local\anaconda3\envs\rofunc37\lib\site-packages\pytorch_kinematics\chain.py", line 292, in Chain
+    @lru_cache
+  File "C:\Users\Kat.Sullivan\AppData\Local\anaconda3\envs\rofunc37\lib\functools.py", line 490, in lru_cache
+    raise TypeError('Expected maxsize to be an integer or None')
+TypeError: Expected maxsize to be an integer or None
+
+go to the chain.py file, there are 2 instances of @lru_cache()
+change to @lru_cache(maxsize=128)
+
+for python 3.7, you may get the error:
+ModuleNotFoundError: No module named 'pbdlib'
+
+# FBX SDK installer
+
+install FBX SDK, install FBX Python SDK,and Python bindings
+
+  Define the FBXSDK_ROOT environment variable to the location of the
+     installed FBX SDK 
+
+cd to python bindings (where the toml file lives)
+activate conda env
+python -m pip install --upgrade pip setuptools wheel
+
+Install Sip version 6.6.2 (newer version have template issue)
+    python -m pip install --force-reinstall -v "sip==6.6.2"
+Build and Install command:
+    python -m pip install .
+
+
+move FbxCommon.py into lib/site-packages

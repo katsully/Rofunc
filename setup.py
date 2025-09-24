@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 from pathlib import Path
 
 this_directory = Path(__file__).parent
-long_description = (this_directory / "README.md").read_text()
+# long_description = (this_directory / "README.md").read_text()
 
 # Environment-specific dependencies.
 extras = {
@@ -15,8 +15,8 @@ setup(
     name="rofunc",
     version="0.0.2.6",
     description='Rofunc: The Full Process Python Package for Robot Learning from Demonstration and Robot Manipulation',
-    long_description=long_description,
-    long_description_content_type='text/markdown',
+    # long_description=long_description,
+    # long_description_content_type='text/markdown',
     author="Junjia Liu",
     author_email="jjliu@mae.cuhk.edu.hk",
     url='https://github.com/Skylark0924/Rofunc',
@@ -28,20 +28,37 @@ setup(
                       "omegaconf==2.3.0",
                       'opencv-python==4.7.0.72',
                       'tqdm==4.67.1',
-                      'pandas==2.0.3',
+                      # for python 3.10
+                      # 'pandas==2.0.3',
+                      # for python 3.7
+                      'pandas==1.3.5',
                       'hydra-core==1.3.2',
-                      'trimesh==4.5.3',
+                      # for python 3.10
+                      # 'trimesh==4.5.3',
+                      # for python 3.7
+                      'trimesh==3.7.10',
                       'lxml==5.3.0',
                       "pytorch_kinematics==0.7.2",
                       'nestle==0.2.0',
-                      'gdown==5.2.0',
-                      "transformations==2022.9.26",
+                      # for python 3.10
+                      # 'gdown==5.2.0',
+                      # for python 3.7
+                      'gdown==4.7.1',
+                      # for python 3.10
+                      # "transformations==2022.9.26",
+                      # for python 3.7
+                      "transformations==2021.6.6",
                       'gym>=0.26.2',
                       "numpy<=1.23.0",
                       'wandb==0.18.7',
-                      "gymnasium==1.0.0",
-                      "tensorboard==2.14.0",
-                      "transformers==4.46.3"
+                      # for python 3.10
+                      # "gymnasium==1.0.0",
+                      # for python 3.10
+                      # "tensorboard==2.14.0",
+                      # for python 3.10
+                      # "transformers==4.46.3"
+                      # for python 3.7
+                      'transformers==4.27.4'
                       ],
     python_requires=">=3.7,<3.11",
     keywords=['robotics', 'robot learning', 'learning from demonstration', 'reinforcement learning',

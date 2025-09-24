@@ -20,6 +20,8 @@ Attention: Since the Autodesk FBX SDK just supports Python 3.7, this script shou
 import multiprocessing
 import os
 
+import numpy as np
+
 import rofunc as rf
 from rofunc.utils.datalab.poselib.poselib.core.rotation3d import *
 from rofunc.utils.datalab.poselib.poselib.skeleton.skeleton3d import SkeletonState, SkeletonMotion
@@ -198,7 +200,7 @@ def motion_from_fbx(fbx_file_path, root_joint, fps=60, visualize=True):
     return motion
 
 
-def motion_retargeting(retarget_cfg, source_motion, visualize=False):
+def motion_retargeting(retarget_cfg, source_motion, visualize=True):
     # load and visualize t-pose files
     source_tpose = SkeletonState.from_file(retarget_cfg["source_tpose"])
     if visualize:
@@ -240,6 +242,7 @@ def motion_retargeting(retarget_cfg, source_motion, visualize=False):
     root_translation = target_motion.root_translation
     local_rotation = local_rotation[frame_beg:frame_end, ...]
     root_translation = root_translation[frame_beg:frame_end, ...]
+    # move human to origin
     avg_root_translation = root_translation.mean(axis=0)
     root_translation[1:] -= avg_root_translation
 
@@ -354,7 +357,7 @@ def npy_from_fbx(fbx_file):
 
     source_motion = motion_from_fbx(fbx_file, root_joint="Hips", fps=60, visualize=False)
     # config["target_motion_path"] = fbx_file.replace('.fbx', '_amp.npy')
-    motion_retargeting(config, source_motion, visualize=True)
+    motion_retargeting(config, source_motion, visualize=False)
 
 
 if __name__ == '__main__':

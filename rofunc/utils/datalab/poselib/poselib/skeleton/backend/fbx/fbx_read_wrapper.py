@@ -29,7 +29,7 @@ def fbx_to_array(fbx_file_path, root_joint, fps):
     :param fbx_file_path: str, file path to fbx
     :return: tuple with joint_names, parents, transforms, frame time
     """
-
+    print("fbx to array")
     # Ensure the file path is valid
     fbx_file_path = os.path.abspath(fbx_file_path)
     assert os.path.exists(fbx_file_path)
