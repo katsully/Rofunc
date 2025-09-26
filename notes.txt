@@ -38,5 +38,7 @@ Install Sip version 6.6.2 (newer version have template issue)
 Build and Install command:
     python -m pip install .
 
+also had to pip install the whl file (only worked with python 3.10 because the wheel was cp10)
+
 
 move FbxCommon.py into lib/site-packages

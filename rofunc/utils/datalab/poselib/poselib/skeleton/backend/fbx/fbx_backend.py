@@ -48,7 +48,6 @@ except ImportError as e:
     )
     print("FBX Python SDK must be installed")
 
-
 def fbx_to_npy(file_name_in, root_joint_name, fps):
     print("fbx to npy")
     print(root_joint_name)
@@ -240,8 +239,6 @@ def _get_animation_curve(joint, fbx_scene):
 def _get_skeleton(root_joint):
     # Do a depth first search of the skeleton to extract all the joints
     joint_list = [root_joint]
-    print("_get_skeleton")
-    print(root_joint.GetName())
     joint_names = [root_joint.GetName()]
     parents = [-1]  # -1 means no parent
 
@@ -256,7 +253,6 @@ def _get_skeleton(root_joint):
             child = joint.GetChild(child_index)
             joint_list.append(child)
             joint_names.append(child.GetName())
-            print(child.GetName())
             parents.append(pos)
             append_children(child, len(parents) - 1)
 

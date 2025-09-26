@@ -42,6 +42,7 @@ class RobotModel:
         self._load_link_info()
 
     def _load_model(self):
+        print("LOAD MODEL")
         """Loads the kinematic chain and robot model (URDF or MJCF)."""
         if self.solve_engine == "pytorch_kinematics":
             from rofunc.utils.robolab.kinematics import pytorch_kinematics_utils as pk_utils
