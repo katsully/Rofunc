@@ -17,7 +17,7 @@
 Attention: Since the Autodesk FBX SDK just supports Python 3.7, this script should be run with Python 3.7.
 """
 
-import isaacgym
+# import isaacgym
 import multiprocessing
 import os
 import sys
@@ -100,7 +100,7 @@ def _run_sim(motion):
     return dof_states
 
 
-def motion_from_fbx(fbx_file_path, root_joint, fps=60, visualize=True):
+def motion_from_fbx(fbx_file_path, root_joint, fps=60, visualize=False):
     # import fbx file - make sure to provide a valid joint name for root_joint
     motion = SkeletonMotion.from_fbx(
         fbx_file_path=fbx_file_path,
@@ -108,9 +108,9 @@ def motion_from_fbx(fbx_file_path, root_joint, fps=60, visualize=True):
         fps=fps
     )
     # visualize motion
-    if visualize:
-        rf.logger.beauty_print("Plot Optitrack skeleton motion", type="module")
-        plot_skeleton_motion_interactive(motion)
+    # if visualize:
+    #     rf.logger.beauty_print("Plot Optitrack skeleton motion", type="module")
+    #     plot_skeleton_motion_interactive(motion)
     return motion
 
 
@@ -292,7 +292,7 @@ if __name__ == '__main__':
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--fbx_dir", type=str, default=f"{rf.oslab.get_rofunc_path()}/../examples/data/hotu2/20240509")
+    # parser.add_argument("--fbx_dir", type=str, default=f"{rf.oslab.get_rofunc_path()}/../examples/data/hotu2/20240509")
     # parser.add_argument("--fbx_dir", type=str, default=None)
     # parser.add_argument("--fbx_file", type=str,
     #                     default=f"{rf.oslab.get_rofunc_path()}/../examples/data/hotu2/test_data_04_optitrack.fbx")
@@ -312,28 +312,33 @@ if __name__ == '__main__':
 
     rofunc_path = rf.oslab.get_rofunc_path()
 
-    if args.fbx_dir is not None:
-        fbx_dir = args.fbx_dir
-        fbx_files = rf.oslab.list_absl_path(fbx_dir, suffix='.fbx')
-    elif args.fbx_file is not None:
-        fbx_files = [args.fbx_file]
-    else:
-        raise ValueError("Please provide a valid fbx_dir or fbx_file.")
+    fbx_file = args.fbx_file
+
+    # if args.fbx_dir is not None:
+    #     fbx_dir = args.fbx_dir
+    #     fbx_files = rf.oslab.list_absl_path(fbx_dir, suffix='.fbx')
+    # elif args.fbx_file is not None:
+    #     fbx_files = [args.fbx_file]
+    # else:
+    #     raise ValueError("Please provide a valid fbx_dir or fbx_file.")
     # fbx_dir = os.path.join(rofunc_path, "../examples/data/hotu")
     # fbx_dir = "/home/ubuntu/Data/2023_11_15_HED/has_gloves"
     # fbx_files = rf.oslab.list_absl_path(fbx_dir, suffix='.fbx')
     # fbx_files = ["/home/ubuntu/Data/2023_11_15_HED/has_gloves/New Session-009.fbx"]
     # fbx_files = [os.path.join(rofunc_path, "../examples/data/hotu/test_data_01_xsens.fbx")]
 
-    from tqdm import tqdm
+    # fbx_file.replace('_optitrack.fbx', '_optitrack2h1_dof_states.npy')
+    npy_from_fbx(fbx_file)
 
-    if args.parallel:
-        pool = multiprocessing.Pool()
-        pool.map(npy_from_fbx, fbx_files)
-    else:
-        with tqdm(total=len(fbx_files)) as pbar:
-            for fbx_file in fbx_files:
-                if os.path.exists(fbx_file.replace('_optitrack.fbx', '_optitrack2h1_dof_states.npy')):
-                    continue
-                npy_from_fbx(fbx_file)
-                pbar.update(1)
+    # from tqdm import tqdm
+
+    # if args.parallel:
+    #     pool = multiprocessing.Pool()
+    #     pool.map(npy_from_fbx, fbx_files)
+    # else:
+    #     with tqdm(total=len(fbx_files)) as pbar:
+    #         for fbx_file in fbx_files:
+    #             if os.path.exists(fbx_file.replace('_optitrack.fbx', '_optitrack2h1_dof_states.npy')):
+    #                 continue
+    #             npy_from_fbx(fbx_file)
+    #             pbar.update(1)
