@@ -1,81 +1,95 @@
-# (Assuming you've run the previous code block and `my_motion_data` and `working_npz_data` are loaded)
+NOTESSSSS
 
-# --- Step 3.1: Re-evaluate and Correct `body_rotations` (Pelvis Orientation) ---
-print("\n--- Re-evaluating and Correcting Body Rotations (Pelvis Orientation) ---")
 
-my_body_rotations = my_motion_data.get('body_rotations')
-working_body_rotations = working_npz_data.get('body_rotations')
-my_body_names = my_motion_data.get('body_names') # Ensure this is available
+Looking at your code, I can see the issue. The chest/pelvis facing forward while limbs face backwards suggests there's an inconsistent rotation transformation being applied. Let me help you fix this.
 
-if my_body_rotations is None or working_body_rotations is None:
-print("ERROR: Body rotations data missing from one or both NPZ files. Cannot proceed.")
-exit()
+The main issue appears to be in how you're applying rotations to different body parts. Here's what I think is happening and how to fix it:
 
-pelvis_idx = np.where(my_body_names == 'pelvis')[0]
-if pelvis_idx.size == 0:
-print("ERROR: 'pelvis' body not found in my_body_names. Cannot proceed.")
-exit()
-pelvis_idx = pelvis_idx[0]
+Key Issues:
+Inconsistent rotation transformation: You're negating w and z components for all joints, but this might not be appropriate for all body parts.
+Coordinate system mismatch: The transformation from XSens to G1 coordinate system needs to be handled more carefully.
+Local vs Global rotations: The retargeting might be producing correct local rotations, but the global rotations need additional transformation.
+Here's the fixed version of the critical section:
+# Replace the body rotation section (around line 285-300) with this:
 
-# Get the initial pelvis quaternions
-my_pelvis_quat_initial = my_body_rotations[0, pelvis_idx, :]
-working_pelvis_quat_initial = working_body_rotations[0, pelvis_idx, :]
-
-# Normalize quaternions
-my_pelvis_quat_initial = my_pelvis_quat_initial / np.linalg.norm(my_pelvis_quat_initial)
-working_pelvis_quat_initial = working_pelvis_quat_initial / np.linalg.norm(working_pelvis_quat_initial)
-
-r_my_pelvis_initial = R.from_quat(my_pelvis_quat_initial)
-r_working_pelvis_initial = R.from_quat(working_pelvis_quat_initial)
-
-# Calculate the rotation that transforms 'my_pelvis_initial' to 'working_pelvis_initial'
-# R_corr * R_my_initial = R_working_initial  => R_corr = R_working_initial * R_my_initial.inv()
-r_correction = r_working_pelvis_initial * r_my_pelvis_initial.inv()
-
-print(f"\nCalculated Initial Pelvis Rotation Correction (Euler XYZ degrees): {r_correction.as_euler('xyz', degrees=True)}")
-print(f"Calculated Initial Pelvis Rotation Correction (Quaternion): {r_correction.as_quat()}")
-
-# --- Apply this correction to ALL body rotations in your data ---
-# This is a global rotation that aligns your entire motion sequence's initial orientation
-# with the working NPZ's initial orientation.
-corrected_my_body_rotations = np.zeros_like(my_body_rotations)
-for frame_idx in range(my_body_rotations.shape[0]):
-for body_idx in range(my_body_rotations.shape[1]):
-    original_quat = my_body_rotations[frame_idx, body_idx, :]
-    # Normalize to prevent floating point errors
-    original_quat = original_quat / np.linalg.norm(original_quat)
-    r_original = R.from_quat(original_quat)
+# Apply coordinate system transformation
+# XSens to G1/IsaacSim requires careful handling of each body part
+for i in range(N):
+for j, idx in enumerate(body_indices):
+    # Position transformation: Keep X, swap Y and Z
+    x, y, z = global_positions[i, idx]
+    body_positions[i, j] = np.array([x, z, y])
     
-    # Apply the correction. The order matters: r_correction * r_original applies
-    # r_correction *before* r_original in the local frame, or *after* in the global frame.
-    # Given we want to align the global orientation, this order is usually correct.
-    r_transformed = r_correction * r_original 
-    corrected_my_body_rotations[frame_idx, body_idx, :] = r_transformed.as_quat()
+    # Get the original rotation
+    w, x, y, z = global_rotations[i, idx]
+    
+    # Apply different transformations based on body part type
+    body_name = isaac_body_names[j]
+    
+    # For the pelvis and torso, we need a different transformation
+    if body_name in ["pelvis", "torso_link"]:
+        # These are already facing the correct direction
+        # Just apply the coordinate swap
+        body_rotations[i, j] = np.array([w, x, z, y])
+    else:
+        # For limbs, we need to apply additional rotation
+        # First apply coordinate swap
+        swapped_quat = np.array([w, x, z, y])
+        
+        # Then apply 180° rotation around the up axis (Z in IsaacSim)
+        # This is quaternion multiplication with [0, 0, 0, 1] (180° around Z)
+        z_180_quat = np.array([0, 0, 0, 1])  # 180° around Z in [w,x,y,z]
+        
+        # Quaternion multiplication to apply the rotation
+        body_rotations[i, j] = quaternion_multiply(swapped_quat, z_180_quat)
 
-# Update your data with the corrected rotations
-my_motion_data['body_rotations'] = corrected_my_body_rotations
-print("\nApplied initial pelvis rotation correction to all body rotations in 'my_motion_data'.")
+# Normalize all quaternions to ensure they're valid
+for i in range(N):
+for j in range(len(body_indices)):
+    norm = np.linalg.norm(body_rotations[i, j])
+    if norm > 0:
+        body_rotations[i, j] /= norm
+    else:
+        body_rotations[i, j] = np.array([1, 0, 0, 0])  # Identity quaternion
 
-# Verify the correction for the pelvis
-print("\nFirst 5 frames of Pelvis Rotation (My Motion Data - AFTER CORRECTION):")
-print(my_motion_data['body_rotations'][:5, pelvis_idx, :])
-print("\nFirst 5 frames of Pelvis Rotation (Working NPZ - for comparison):")
-print(working_body_rotations[:5, pelvis_idx, :])
+Additional fixes:
+Update the retarget config rotation to better match the coordinate systems:
+"rotation": [0.5, 0.5, 0.5, 0.5],  # This represents a 120° rotation that aligns XSens to G1
 
-print("-" * 50)
+Add joint-specific corrections for problematic joints:
+# After the main rotation transformation, add specific corrections
+joint_corrections = {
+"left_shoulder_pitch_link": np.array([0.7071, 0, 0.7071, 0]),  # 90° around Y
+"right_shoulder_pitch_link": np.array([0.7071, 0, -0.7071, 0]),  # -90° around Y
+# Add more corrections as needed
+}
 
-Expected Output from Step 3.1:
+for i in range(N):
+for j, body_name in enumerate(isaac_body_names):
+    if body_name in joint_corrections:
+        # Apply correction
+        body_rotations[i, j] = quaternion_multiply(body_rotations[i, j], joint_corrections[body_name])
 
-After running this, the First 5 frames of Pelvis Rotation (My Motion Data - AFTER CORRECTION) should now closely match the Working NPZ's pelvis rotations for the first few frames. The Calculated Initial Pelvis Rotation Correction will tell us the exact rotational misalignment.
+Fix the angular velocity calculation to account for the transformation:
+# After calculating body_angular_velocities, apply coordinate transformation
+for j in range(len(isaac_body_names)):
+# Swap Y and Z components to match position transformation
+temp = body_angular_velocities[:, j, 1].copy()
+body_angular_velocities[:, j, 1] = body_angular_velocities[:, j, 2]
+body_angular_velocities[:, j, 2] = temp
 
-Important Note on Body Name Differences:
+Debug visualization to verify orientations:
+# Add this after computing body_rotations to visualize orientations
+if visualize and i == 0:  # Check first frame
+print(f"\nFirst frame orientations:")
+for j, body_name in enumerate(isaac_body_names):
+    quat = body_rotations[0, j]
+    # Convert to Euler angles for easier understanding
+    r = R.from_quat([quat[1], quat[2], quat[3], quat[0]])  # Convert to scipy format
+    euler = r.as_euler('xyz', degrees=True)
+    print(f"{body_name}: euler={euler}")
 
-You mentioned you're not worrying about body name differences for now. However, the difference at indices 7 and 8 (your right_wrist_pitch_link vs. workingnpz's right_rubber_hand, and similarly for left) is extremely important.
 
-    If Isaac Sim's robot model has right_rubber_hand and left_rubber_hand as its end-effector links, and your body_names refers to right_wrist_pitch_link and left_wrist_pitch_link at those indices, then the pose data for the hands will be completely wrong. Isaac Sim will apply the motion intended for your wrist pitch links to the robot's actual hand links, and the wrist pitch links themselves (if they exist in the model) will remain static or follow some default.
-    Recommendation: While we can proceed with other corrections, please keep in mind that you will eventually need to align your body_names with the exact names and order expected by your Isaac Sim robot model. This might involve:
+The key insight is that different body parts may need different rotation transformations based on their orientation in the source skeleton versus the target skeleton. The pelvis and torso might already be correctly oriented, while the limbs need additional rotation to face forward.
 
-    Renaming your XSens segments during processing.
-    Adjusting the body_indices to pick the correct links from your XSens data to match the workingnpz's body_names order.
-
-Let's see the output of Step 3.1. This correction is fundamental to getting the robot oriented correctly.
+Try these fixes and let me know if the orientation issues persist!

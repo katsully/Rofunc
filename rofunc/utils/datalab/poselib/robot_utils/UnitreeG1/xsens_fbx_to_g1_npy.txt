@@ -286,35 +286,12 @@ def motion_retargeting(retarget_cfg, source_motion, visualize=True):
 	body_positions = np.zeros((N, len(body_indices), 3), dtype=np.float32)
 	body_rotations = np.zeros((N, len(body_indices), 4), dtype=np.float32)
 
-	# First, load the G1 T-pose rotations for reference
-	# You already have target_tpose loaded, so we can access its rotations
-	g1_tpose_rotations = target_tpose.local_rotation.cpu().numpy()  # Shape: (30, 4)
+	# Apply a 180-degree rotation around Z to make all body parts face forward
+	# z_180_rotation = np.array([0, 0, 0, 1])  # 180° around Z in [w,x,y,z]
 
-	# Create a mapping from body names to their T-pose rotations
-	tpose_rotation_map = {}
-	for idx, name in enumerate(target_tpose.skeleton_tree.node_names):
-	 tpose_rotation_map[name] = g1_tpose_rotations[idx]
-
-	# Define left/right body parts
-	left_joints = [
-	 "left_shoulder_pitch_link", "left_shoulder_roll_link", "left_shoulder_yaw_link",
-	 "left_elbow_link", "left_wrist_roll_link", "left_wrist_pitch_link",
-	 "left_hip_pitch_link", "left_hip_roll_link", "left_hip_yaw_link",
-	 "left_knee_link", "left_ankle_pitch_link", "left_ankle_roll_link"
-	]
-
-	right_joints = [
-	 "right_shoulder_pitch_link", "right_shoulder_roll_link", "right_shoulder_yaw_link",
-	 "right_elbow_link", "right_wrist_roll_link", "right_wrist_pitch_link",
-	 "right_hip_pitch_link", "right_hip_roll_link", "right_hip_yaw_link",
-	 "right_knee_link", "right_ankle_pitch_link", "right_ankle_roll_link"
-	]
-
-	# joint_corrections = {
-	# 	"left_shoulder_pitch_link": np.array([0.7071, 0, 0.7071, 0]),  # 90° around Y
-	# 	"right_shoulder_pitch_link": np.array([0.7071, 0, -0.7071, 0]),  # -90° around Y
-	# 	# Add more corrections as needed
-	# }
+	# # Add debug prints
+	# print(f"z_180_rotation: {z_180_rotation}")
+	# print(f"First frame global_rotations[0, 0]: {global_rotations[0, body_indices[0]]}")
 
 	# Instead of trying to combine rotations, let's set them directly
 	for i in range(N):
@@ -322,69 +299,6 @@ def motion_retargeting(retarget_cfg, source_motion, visualize=True):
 			# Position transformation: Keep X, swap Y and Z
 			x, y, z = global_positions[i, idx]
 			body_positions[i, j] = np.array([x, z, y])
-
-			w, x, y, z = global_rotations[i, idx]
-			body_name = isaac_body_names[j]
-
-			if body_name in ['pelvis', 'torso_link']:
-				# body_rotations[i,j] = np.array([1.0, 0.0, 0.0, 0.0])
-				# Pelvis needs proper orientation, not just identity
-				 # Get the global rotation from retargeted motion
-				 w, x, y, z = global_rotations[i, idx]
-				 # Apply coordinate transformation: XSens Y-up to G1 Z-up
-				 # This involves rotating 90 degrees around X axis
-				 x_90_quat = np.array([0.7071, 0.7071, 0, 0])  # 90° around X
-				 original_quat = np.array([w, x, y, z])
-				 body_rotations[i, j] = quaternion_multiply(original_quat, x_90_quat)
-			else:
-				# For limbs, we need to consider their T-pose orientation
-				w, x, y, z = global_rotations[i, idx]
-				 
-				# Get the T-pose rotation for this joint
-				if body_name in tpose_rotation_map:
-					tpose_quat = tpose_rotation_map[body_name]
-				else:
-					tpose_quat = np.array([1, 0, 0, 0])  # Identity if not found
-				 
-				# Apply coordinate transformation
-				# First rotate from XSens to G1 coordinate system
-				x_90_quat = np.array([0.7071, 0.7071, 0, 0])  # 90° around X
-				transformed_quat = quaternion_multiply(np.array([w, x, y, z]), x_90_quat)
-				 
-				# For joints with non-identity T-pose, we need to apply additional correction
-				if not np.allclose(tpose_quat, [1, 0, 0, 0], atol=0.01):
-					# The joint has a specific T-pose orientation
-					# We need to rotate by 180° around the appropriate axis
-					 
-					if body_name in left_joints:
-						# For left joints, rotate 180° around Y axis
-						y_180_quat = np.array([0, 0, 1, 0])  # 180° around Y
-						body_rotations[i, j] = quaternion_multiply(transformed_quat, y_180_quat)
-						 
-					elif body_name in right_joints:
-						# For right joints, also rotate 180° around Y but with different handling
-						y_180_quat = np.array([0, 0, 1, 0])  # 180° around Y
-						rotated = quaternion_multiply(transformed_quat, y_180_quat)
-						# For right side, we might need to mirror some components
-						# This depends on the specific joint
-						if "shoulder" in body_name or "hip" in body_name:
-							# Mirror the X component for shoulders and hips
-							body_rotations[i, j] = np.array([rotated[0], -rotated[1], rotated[2], rotated[3]])
-						else:
-							body_rotations[i, j] = rotated
-					else:
-						# Other joints (if any)
-						body_rotations[i, j] = transformed_quat
-				else:
-					# For joints with identity T-pose, simpler transformation
-					if body_name in ["left_elbow_link", "right_elbow_link", 
-									 "left_knee_link", "right_knee_link"]:
-						# These joints typically bend in one direction
-						# Apply 180° rotation to face forward
-						z_180_quat = np.array([0, 0, 0, 1])  # 180° around Z
-						body_rotations[i, j] = quaternion_multiply(transformed_quat, z_180_quat)
-					else:
-						body_rotations[i, j] = transformed_quat
 
 			##AVATAR UPRIGHT, CHEST FORWARD,REST BACKWARDS
 			# For the root (j=0), use a quaternion similar to the working NPZ
@@ -396,22 +310,15 @@ def motion_retargeting(retarget_cfg, source_motion, visualize=True):
 			# 	body_rotations[i, j] = global_rotations[i, idx]
 			##############################################
 
-	# Normalize all quaternions
-	for i in range(N):
-	 for j in range(len(body_indices)):
-		 norm = np.linalg.norm(body_rotations[i, j])
-		 if norm > 0:
-			 body_rotations[i, j] /= norm
-		 else:
-			 body_rotations[i, j] = np.array([1, 0, 0, 0])
-
-	# Debug output for first frame
-	if N > 0:
-		print("\nFirst frame rotations (after transformation):")
-		for j, body_name in enumerate(isaac_body_names):
-			quat = body_rotations[0, j]
-			print(f"{body_name}: [{quat[0]:.3f}, {quat[1]:.3f}, {quat[2]:.3f}, {quat[3]:.3f}]")
-
+			# # Apply 180° Z rotation to all joints to make them face forward
+			# if j == 0:
+			# 	# For root, combine with the base rotation similar to working NPZ
+			# 	body_rotations[i,j] = np.array([0.9995, 0.009, -0.013, 0.025])
+			# else:
+				# For other joints, flip the rotation to match the root
+			w, x, y, z = global_rotations[i, idx]
+			# Negate w and z to achieve 180° rotation around Y axis
+			body_rotations[i, j] = np.array([-w, x, -y, z])
 
 	# Check if any quaternions have zero magnitude
 	zero_count = np.sum(np.linalg.norm(body_rotations, axis=2) < 0.1)
@@ -462,22 +369,6 @@ def motion_retargeting(retarget_cfg, source_motion, visualize=True):
 		# Smoothing
 		body_angular_velocities[:, j, :] = gaussian_filter1d(angular_vels, sigma=1, axis=0)
 
-	for j in range(len(isaac_body_names)):
-		for i in range(N):
-			# Get the original angular velocity
-			wx, wy, wz = body_angular_velocities[i, j]
-			# Swap Y and Z components to match position transformation
-			body_angular_velocities[i, j] = np.array([wx, wz, wy])
-
-	# Add this after computing body_rotations to visualize orientations
-	if visualize and i == 0:  # Check first frame
-		print(f"\nFirst frame orientations:")
-		for j, body_name in enumerate(isaac_body_names):
-			quat = body_rotations[0, j]
-			# Convert to Euler angles for easier understanding
-			r = R.from_quat([quat[1], quat[2], quat[3], quat[0]])  # Convert to scipy format
-			euler = r.as_euler('xyz', degrees=True)
-			print(f"{body_name}: euler={euler}")
 
 	dof_names = np.array(g1_revolute_joint_names, dtype='U256')
 
@@ -495,7 +386,7 @@ def motion_retargeting(retarget_cfg, source_motion, visualize=True):
 	}
 
 
-	np.savez('my_motion_data15.npz', **data_dict)
+	np.savez('my_motion_data12.npz', **data_dict)
 	
 	# save retargeted motion
 	target_motion.to_file(retarget_cfg["target_motion_path"])
@@ -541,8 +432,7 @@ def npy_from_fbx(fbx_file):
 			"RightForeArm": "right_elbow_link",
 			"RightHand": "right_wrist_pitch_link"
 		},
-		# "rotation": [0.7071, 0.7071, 0.0, 0.0],  # 90 degrees around X in [w,x,y,z] format		
-		"rotation": [0.5, 0.5, 0.5, 0.5],
+		"rotation": [0.7071, 0.7071, 0.0, 0.0],  # 90 degrees around X in [w,x,y,z] format		
 		"scale": 0.01,
 		"root_height_offset": 0.8,
 		"trim_frame_beg": 0,
