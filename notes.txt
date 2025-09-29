@@ -28,15 +28,22 @@ install FBX SDK, install FBX Python SDK,and Python bindings
 
   Define the FBXSDK_ROOT environment variable to the location of the
      installed FBX SDK 
-
+echo
 cd to python bindings (where the toml file lives)
 activate conda env
-python -m pip install --upgrade pip setuptools wheel
-
+python -m pip install --upgrade pip wheel
 Install Sip version 6.6.2 (newer version have template issue)
-    python -m pip install --force-reinstall -v "sip==6.6.2"
+    python -m pip install --force-reinstall -v sip==6.6.2
 Build and Install command:
-    python -m pip install .
+    python -m pip install . (on linux: pip install .)
+      if you have issues on linux with libxml: sudo apt install libxml2-dev
+
+also had to pip install the whl file (only worked with python 3.10 because the wheel was cp10)
 
 
 move FbxCommon.py into lib/site-packages
+
+
+if still getting issues, go into python interpreter and check import fbx
+  if: ImportError: /home/brett/anaconda3/envs/rofunc/lib/libstdc++.so.6: version `GLIBCXX_3.4.30' not found (required by /lib/x86_64-linux-gnu/libicuuc.so.74)
+  conda install -c conda-forge gcc=12.1.0
