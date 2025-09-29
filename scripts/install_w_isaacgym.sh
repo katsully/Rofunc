@@ -26,11 +26,11 @@ pip3rf install -r requirements.txt
 pip3rf install gdown==5.2.0
 
 # Download data
-cd ./examples/
-gdown https://drive.google.com/uc?id=1pOzD61CQJcy4L2hXveT1cGiD0AkIDt_c&export=download
-unzip -q data.zip
-rm data.zip
-cd ../
+# cd ./examples/
+# gdown https://drive.google.com/uc?id=1pOzD61CQJcy4L2hXveT1cGiD0AkIDt_c&export=download
+# unzip -q data.zip
+# rm data.zip
+# cd ../
 
 pip3rf install . --use-deprecated=legacy-resolver
 

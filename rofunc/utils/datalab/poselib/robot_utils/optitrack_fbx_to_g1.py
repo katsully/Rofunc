@@ -17,7 +17,7 @@
 Attention: Since the Autodesk FBX SDK just supports Python 3.7, this script should be run with Python 3.7.
 """
 
-# import isaacgym
+import isaacgym
 import multiprocessing
 import os
 import sys
@@ -100,7 +100,7 @@ def _run_sim(motion):
     return dof_states
 
 
-def motion_from_fbx(fbx_file_path, root_joint, fps=60, visualize=False):
+def motion_from_fbx(fbx_file_path, root_joint, fps=60, visualize=True):
     # import fbx file - make sure to provide a valid joint name for root_joint
     motion = SkeletonMotion.from_fbx(
         fbx_file_path=fbx_file_path,
@@ -108,9 +108,9 @@ def motion_from_fbx(fbx_file_path, root_joint, fps=60, visualize=False):
         fps=fps
     )
     # visualize motion
-    # if visualize:
-    #     rf.logger.beauty_print("Plot Optitrack skeleton motion", type="module")
-    #     plot_skeleton_motion_interactive(motion)
+    if visualize:
+        rf.logger.beauty_print("Plot Optitrack skeleton motion", type="module")
+        plot_skeleton_motion_interactive(motion)
     return motion
 
 
@@ -191,13 +191,75 @@ def motion_retargeting(retarget_cfg, source_motion, visualize=False):
 
     if visualize:
         # visualize retargeted motion
-        rf.logger.beauty_print("Plot H1 skeleton motion", type="module")
+        rf.logger.beauty_print("Plot G1 skeleton motion", type="module")
         plot_skeleton_motion_interactive(target_motion, verbose=False)
 
     dof_states = _run_sim(target_motion)
     dof_states = np.array(dof_states.cpu().numpy())
     np.save(retarget_cfg["target_dof_states_path"], dof_states)
-    rf.logger.beauty_print(f"Saved H1 dof_states to {retarget_cfg['target_motion_path']}", type="module")
+    rf.logger.beauty_print(f"Saved G1 dof_states to {retarget_cfg['target_motion_path']}", type="module")
+
+    joint_names = [
+        "left_hip_pitch_joint",
+        "left_hip_roll_joint",
+        "left_hip_yaw_joint",
+        "left_knee_joint",
+        "left_ankle_pitch_joint",
+        "left_ankle_roll_joint",
+        "right_hip_pitch_joint",
+        "right_hip_roll_joint",
+        "right_hip_yaw_joint",
+        "right_knee_joint",
+        "right_ankle_pitch_joint",
+        "right_ankle_roll_joint",
+        "waist_yaw_joint",
+        "waist_roll_joint",
+        "waist_pitch_joint",
+        "left_shoulder_pitch_joint",
+        "left_shoulder_roll_joint",
+        "left_shoulder_yaw_joint",
+        "left_elbow_joint",
+        "left_wrist_roll_joint",
+        "left_wrist_pitch_joint",
+        "left_wrist_yaw_joint",
+        "right_shoulder_pitch_joint",
+        "right_shoulder_roll_joint",
+        "right_shoulder_yaw_joint",
+        "right_elbow_joint",
+        "right_wrist_roll_joint",
+        "right_wrist_pitch_joint",
+        "right_wrist_yaw_joint"
+    ]
+    dof_names = np.array(joint_names, dtype=np.str_)
+
+    body_names = [
+        "pelvis", 
+        # "head_link",
+        "left_shoulder_pitch_link",
+        "right_shoulder_pitch_link",
+        "left_elbow_link",
+        "right_elbow_link",
+        "right_hip_yaw_link",
+        "left_hip_yaw_link",
+        "right_rubber_hand",
+        "left_rubber_hand",
+        "right_ankle_roll_link",
+        "left_ankle_roll_link"
+    ]
+    body_names = np.array(body_names, dtype=np.str_)
+
+
+    data_dict = {
+        "fps:" target_motion.fps,
+        "dof_names": dof_names,
+        "body_names": body_names,
+        "dof_positions": target_motion.local_rotation,
+        "dof_velocities": target_motion.global_angular_velocity,
+        "body_positions": ,
+        "body_rotations": ,
+        "body_linear_velocities": target_motion.global_velocity,
+        "body_angular_velocities": target_motion.global_angular_velocity
+    }
 
 
 def npy_from_fbx(fbx_file):
@@ -217,11 +279,11 @@ def npy_from_fbx(fbx_file):
 
     rofunc_path = rf.oslab.get_rofunc_path()
     config = {
-        "target_motion_path": fbx_file.replace('_optitrack.fbx', '_optitrack2h1.npy'),
-        "target_dof_states_path": fbx_file.replace('_optitrack.fbx', '_optitrack2h1_dof_states.npy'),
+        "target_motion_path": fbx_file.replace('_optitrack.fbx', '_optitrack2g1.npy'),
+        "target_dof_states_path": fbx_file.replace('_optitrack.fbx', '_optitrack2g1_dof29.npy'),
         "source_tpose": os.path.join(rofunc_path, "utils/datalab/poselib/data/source_optitrack_w_gloves_tpose.npy"),
-        # "target_tpose": os.path.join(rofunc_path, "utils/datalab/poselib/data/target_hotu_humanoid_w_qbhand_tpose.npy"),
-        "target_tpose": os.path.join(rofunc_path, args.target_tpose),
+        "target_tpose": os.path.join(rofunc_path, "utils/datalab/poselib/data/target_g1_29dof_tpose.npy"),
+        # "target_tpose": os.path.join(rofunc_path, args.target_tpose),
         "joint_mapping": {  # Left: Optitrack, Right: MJCF
             # hotu_humanoid.xml
             "Skeleton_Hips": "pelvis",
@@ -238,42 +300,42 @@ def npy_from_fbx(fbx_file):
             "Skeleton_LeftArm": "left_shoulder_pitch_link",
             # "Skeleton_LeftArm": "left_shoulder_yaw_link",
             "Skeleton_LeftForeArm": "left_elbow_link",
-            "Skeleton_LeftHand": "left_hand",
+            "Skeleton_LeftHand": "left_rubber_hand",
             "Skeleton_RightArm": "right_shoulder_pitch_link",
             # "Skeleton_RightArm": "right_shoulder_yaw_link",
             "Skeleton_RightForeArm": "right_elbow_link",
-            "Skeleton_RightHand": "right_hand",
+            "Skeleton_RightHand": "right_rubber_hand",
             # extra mapping for hotu_humanoid_w_qbhand.xml
-            "Skeleton_LeftHandThumb1": "left_qbhand_thumb_knuckle_link",
-            "Skeleton_LeftHandThumb2": "left_qbhand_thumb_proximal_link",
-            "Skeleton_LeftHandThumb3": "left_qbhand_thumb_distal_link",
-            "Skeleton_LeftHandIndex1": "left_qbhand_index_proximal_link",
-            "Skeleton_LeftHandIndex2": "left_qbhand_index_middle_link",
-            "Skeleton_LeftHandIndex3": "left_qbhand_index_distal_link",
-            "Skeleton_LeftHandMiddle1": "left_qbhand_middle_proximal_link",
-            "Skeleton_LeftHandMiddle2": "left_qbhand_middle_middle_link",
-            "Skeleton_LeftHandMiddle3": "left_qbhand_middle_distal_link",
-            "Skeleton_LeftHandRing1": "left_qbhand_ring_proximal_link",
-            "Skeleton_LeftHandRing2": "left_qbhand_ring_middle_link",
-            "Skeleton_LeftHandRing3": "left_qbhand_ring_distal_link",
-            "Skeleton_LeftHandPinky1": "left_qbhand_little_proximal_link",
-            "Skeleton_LeftHandPinky2": "left_qbhand_little_middle_link",
-            "Skeleton_LeftHandPinky3": "left_qbhand_little_distal_link",
-            "Skeleton_RightHandThumb1": "right_qbhand_thumb_knuckle_link",
-            "Skeleton_RightHandThumb2": "right_qbhand_thumb_proximal_link",
-            "Skeleton_RightHandThumb3": "right_qbhand_thumb_distal_link",
-            "Skeleton_RightHandIndex1": "right_qbhand_index_proximal_link",
-            "Skeleton_RightHandIndex2": "right_qbhand_index_middle_link",
-            "Skeleton_RightHandIndex3": "right_qbhand_index_distal_link",
-            "Skeleton_RightHandMiddle1": "right_qbhand_middle_proximal_link",
-            "Skeleton_RightHandMiddle2": "right_qbhand_middle_middle_link",
-            "Skeleton_RightHandMiddle3": "right_qbhand_middle_distal_link",
-            "Skeleton_RightHandRing1": "right_qbhand_ring_proximal_link",
-            "Skeleton_RightHandRing2": "right_qbhand_ring_middle_link",
-            "Skeleton_RightHandRing3": "right_qbhand_ring_distal_link",
-            "Skeleton_RightHandPinky1": "right_qbhand_little_proximal_link",
-            "Skeleton_RightHandPinky2": "right_qbhand_little_middle_link",
-            "Skeleton_RightHandPinky3": "right_qbhand_little_distal_link",
+            # "Skeleton_LeftHandThumb1": "left_qbhand_thumb_knuckle_link",
+            # "Skeleton_LeftHandThumb2": "left_qbhand_thumb_proximal_link",
+            # "Skeleton_LeftHandThumb3": "left_qbhand_thumb_distal_link",
+            # "Skeleton_LeftHandIndex1": "left_qbhand_index_proximal_link",
+            # "Skeleton_LeftHandIndex2": "left_qbhand_index_middle_link",
+            # "Skeleton_LeftHandIndex3": "left_qbhand_index_distal_link",
+            # "Skeleton_LeftHandMiddle1": "left_qbhand_middle_proximal_link",
+            # "Skeleton_LeftHandMiddle2": "left_qbhand_middle_middle_link",
+            # "Skeleton_LeftHandMiddle3": "left_qbhand_middle_distal_link",
+            # "Skeleton_LeftHandRing1": "left_qbhand_ring_proximal_link",
+            # "Skeleton_LeftHandRing2": "left_qbhand_ring_middle_link",
+            # "Skeleton_LeftHandRing3": "left_qbhand_ring_distal_link",
+            # "Skeleton_LeftHandPinky1": "left_qbhand_little_proximal_link",
+            # "Skeleton_LeftHandPinky2": "left_qbhand_little_middle_link",
+            # "Skeleton_LeftHandPinky3": "left_qbhand_little_distal_link",
+            # "Skeleton_RightHandThumb1": "right_qbhand_thumb_knuckle_link",
+            # "Skeleton_RightHandThumb2": "right_qbhand_thumb_proximal_link",
+            # "Skeleton_RightHandThumb3": "right_qbhand_thumb_distal_link",
+            # "Skeleton_RightHandIndex1": "right_qbhand_index_proximal_link",
+            # "Skeleton_RightHandIndex2": "right_qbhand_index_middle_link",
+            # "Skeleton_RightHandIndex3": "right_qbhand_index_distal_link",
+            # "Skeleton_RightHandMiddle1": "right_qbhand_middle_proximal_link",
+            # "Skeleton_RightHandMiddle2": "right_qbhand_middle_middle_link",
+            # "Skeleton_RightHandMiddle3": "right_qbhand_middle_distal_link",
+            # "Skeleton_RightHandRing1": "right_qbhand_ring_proximal_link",
+            # "Skeleton_RightHandRing2": "right_qbhand_ring_middle_link",
+            # "Skeleton_RightHandRing3": "right_qbhand_ring_distal_link",
+            # "Skeleton_RightHandPinky1": "right_qbhand_little_proximal_link",
+            # "Skeleton_RightHandPinky2": "right_qbhand_little_middle_link",
+            # "Skeleton_RightHandPinky3": "right_qbhand_little_distal_link",
         },
         # "rotation": [0.707, 0, 0, 0.707], xyzw
         "rotation": [0.5, 0.5, 0.5, 0.5],
@@ -298,20 +360,21 @@ if __name__ == '__main__':
     #                     default=f"{rf.oslab.get_rofunc_path()}/../examples/data/hotu2/test_data_04_optitrack.fbx")
     parser.add_argument("--fbx_file", type=str)
                         # default=f"{rf.oslab.get_rofunc_path()}/../examples/data/hotu2/20240509/Waving hand_Take 2024-05-09 04.20.29 PM_optitrack.fbx")
-    parser.add_argument("--parallel", action="store_true")
+    # parser.add_argument("--parallel", action="store_true")
     # Available asset:
     #                   1. mjcf/amp_humanoid_spoon_pan_fixed.xml
     #                   2. mjcf/amp_humanoid_sword_shield.xml
     #                   3. mjcf/hotu/hotu_humanoid.xml
     #                   4. mjcf/hotu_humanoid_w_qbhand_no_virtual.xml
     #                   5. mjcf/hotu/hotu_humanoid_w_qbhand_full.xml
-    parser.add_argument("--humanoid_asset", type=str, default="mjcf/unitreeH1/h1_w_qbhand_new.xml")
+    parser.add_argument("--humanoid_asset", type=str, default="mjcf/unitreeG1/g1_29dof.xml")
     parser.add_argument("--target_tpose", type=str,
-                        default="utils/datalab/poselib/data/target_h1_w_qbhand_tpose.npy")
+                        default="utils/datalab/poselib/data/target_g1_29dof_tpose.npy")
     args = parser.parse_args()
 
     rofunc_path = rf.oslab.get_rofunc_path()
     fbx_file = args.fbx_file
+
     # if args.fbx_dir is not None:
     #     fbx_dir = args.fbx_dir
     #     fbx_files = rf.oslab.list_absl_path(fbx_dir, suffix='.fbx')
@@ -325,7 +388,7 @@ if __name__ == '__main__':
     # fbx_files = ["/home/ubuntu/Data/2023_11_15_HED/has_gloves/New Session-009.fbx"]
     # fbx_files = [os.path.join(rofunc_path, "../examples/data/hotu/test_data_01_xsens.fbx")]
 
-    fbx_file.replace('_optitrack.fbx', '_optitrack2h1_dof_states.npy'
+    # from tqdm import tqdm
 
     npy_from_fbx(fbx_file)
 
