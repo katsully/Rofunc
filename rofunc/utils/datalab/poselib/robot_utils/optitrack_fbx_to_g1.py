@@ -38,31 +38,31 @@ def _run_sim(motion):
 
     body_links = {"torso_link": gymapi.AXIS_ROTATION,
                   "right_elbow_link": gymapi.AXIS_ROTATION, "left_elbow_link": gymapi.AXIS_ROTATION,
-                  "right_hand": gymapi.AXIS_ALL, "left_hand": gymapi.AXIS_ALL,
+                  "right_wrist_pitch_link": gymapi.AXIS_ALL, "left_wrist_pitch_link": gymapi.AXIS_ALL,
                   "pelvis": gymapi.AXIS_ROTATION,
                   "left_hip_pitch_link": gymapi.AXIS_ROTATION, "right_hip_pitch_link": gymapi.AXIS_ROTATION,
                   "left_shoulder_yaw_link": gymapi.AXIS_ROTATION, "right_shoulder_yaw_link": gymapi.AXIS_ROTATION,
                   "left_knee_link": gymapi.AXIS_ALL, "right_knee_link": gymapi.AXIS_ALL,
-                  "left_ankle_link": gymapi.AXIS_ALL, "right_ankle_link": gymapi.AXIS_ALL}
+                  "left_ankle_pitch_link": gymapi.AXIS_ALL, "right_ankle_pitch_link": gymapi.AXIS_ALL}
     body_ids = [motion.skeleton_tree._node_indices[link] for link in body_links.keys()]
-    hand_links = ["right_qbhand_root_link", "left_qbhand_root_link",
-                  "left_qbhand_thumb_knuckle_link", "left_qbhand_thumb_proximal_link",
-                  "left_qbhand_thumb_distal_link", "left_qbhand_index_proximal_link",
-                  "left_qbhand_index_middle_link", "left_qbhand_index_distal_link",
-                  "left_qbhand_middle_proximal_link", "left_qbhand_middle_middle_link",
-                  "left_qbhand_middle_distal_link", "left_qbhand_ring_proximal_link",
-                  "left_qbhand_ring_middle_link", "left_qbhand_ring_distal_link",
-                  "left_qbhand_little_proximal_link", "left_qbhand_little_middle_link",
-                  "left_qbhand_little_distal_link",
-                  "right_qbhand_thumb_knuckle_link", "right_qbhand_thumb_proximal_link",
-                  "right_qbhand_thumb_distal_link", "right_qbhand_index_proximal_link",
-                  "right_qbhand_index_middle_link", "right_qbhand_index_distal_link",
-                  "right_qbhand_middle_proximal_link", "right_qbhand_middle_middle_link",
-                  "right_qbhand_middle_distal_link", "right_qbhand_ring_proximal_link",
-                  "right_qbhand_ring_middle_link", "right_qbhand_ring_distal_link",
-                  "right_qbhand_little_proximal_link", "right_qbhand_little_middle_link",
-                  "right_qbhand_little_distal_link"]
-    hand_ids = [motion.skeleton_tree._node_indices[link] for link in hand_links]
+    # hand_links = ["right_qbhand_root_link", "left_qbhand_root_link",
+    #               "left_qbhand_thumb_knuckle_link", "left_qbhand_thumb_proximal_link",
+    #               "left_qbhand_thumb_distal_link", "left_qbhand_index_proximal_link",
+    #               "left_qbhand_index_middle_link", "left_qbhand_index_distal_link",
+    #               "left_qbhand_middle_proximal_link", "left_qbhand_middle_middle_link",
+    #               "left_qbhand_middle_distal_link", "left_qbhand_ring_proximal_link",
+    #               "left_qbhand_ring_middle_link", "left_qbhand_ring_distal_link",
+    #               "left_qbhand_little_proximal_link", "left_qbhand_little_middle_link",
+    #               "left_qbhand_little_distal_link",
+    #               "right_qbhand_thumb_knuckle_link", "right_qbhand_thumb_proximal_link",
+    #               "right_qbhand_thumb_distal_link", "right_qbhand_index_proximal_link",
+    #               "right_qbhand_index_middle_link", "right_qbhand_index_distal_link",
+    #               "right_qbhand_middle_proximal_link", "right_qbhand_middle_middle_link",
+    #               "right_qbhand_middle_distal_link", "right_qbhand_ring_proximal_link",
+    #               "right_qbhand_ring_middle_link", "right_qbhand_ring_distal_link",
+    #               "right_qbhand_little_proximal_link", "right_qbhand_little_middle_link",
+    #               "right_qbhand_little_distal_link"]
+    # hand_ids = [motion.skeleton_tree._node_indices[link] for link in hand_links]
 
     # all_links = body_links + hand_links
     # all_ids = body_ids + hand_ids
@@ -87,9 +87,9 @@ def _run_sim(motion):
     motion_root_ang_vel = motion.global_root_angular_velocity
     motion_root_states = torch.cat([motion_root_pos, motion_root_rot, motion_root_vel, motion_root_ang_vel], dim=-1)
 
-    args = rf.config.get_sim_config("UnitreeH1")
-    UnitreeH1sim = rf.sim.RobotSim(args)
-    dof_states = UnitreeH1sim.run_traj_multi_rigid_bodies(
+    args = rf.config.get_sim_config("UnitreeG1")
+    UnitreeG1sim = rf.sim.RobotSim(args)
+    dof_states = UnitreeG1sim.run_traj_multi_rigid_bodies(
         traj=[motion_rb_states[:, id] for id in all_ids],
         attr_rbs=all_links,
         update_freq=0.001,
@@ -97,6 +97,8 @@ def _run_sim(motion):
         attr_types=all_types,
         verbose=False
     )
+    print(f"dof_states shape: {dof_states.shape}")
+    # Expected: (num_frames, num_envs, 58)
     return dof_states
 
 
@@ -196,6 +198,10 @@ def motion_retargeting(retarget_cfg, source_motion, visualize=False):
 
     dof_states = _run_sim(target_motion)
     dof_states = np.array(dof_states.cpu().numpy())
+
+    print(f"dof_states shape: {dof_states.shape}")
+    print(f"dof_states sample: {dof_states[0]}") # first frame
+
     np.save(retarget_cfg["target_dof_states_path"], dof_states)
     rf.logger.beauty_print(f"Saved G1 dof_states to {retarget_cfg['target_motion_path']}", type="module")
 
@@ -241,24 +247,32 @@ def motion_retargeting(retarget_cfg, source_motion, visualize=False):
         "right_elbow_link",
         "right_hip_yaw_link",
         "left_hip_yaw_link",
-        "right_rubber_hand",
-        "left_rubber_hand",
-        "right_ankle_roll_link",
-        "left_ankle_roll_link"
+        "right_wrist_pitch_link",
+        "left_wrist_pitch_link",
+        "right_ankle_pitch_link",
+        "left_ankle_pitch_link"
     ]
     body_names = np.array(body_names, dtype=np.str_)
 
+    # get body IDs for the bodies that we want to track
+    body_ids = []
+    for body_name in body_names:
+        try:
+            body_id = target_motion.skeleton_tree._node_indices[body_name]
+            body_ids.append(body_id)
+        except KeyError:
+            print(f"Warning: Body {body_name} not found in skeleton tree")
 
     data_dict = {
-        "fps:" target_motion.fps,
+        "fps": target_motion.fps,
         "dof_names": dof_names,
         "body_names": body_names,
-        "dof_positions": target_motion.local_rotation,
-        "dof_velocities": target_motion.global_angular_velocity,
+        "dof_positions": dof_states[:, :29],  # First 29 values are positions,
+        "dof_velocities": dof_states[:, 29:], # Last 29 values are velocities
         "body_positions": ,
         "body_rotations": ,
-        "body_linear_velocities": target_motion.global_velocity,
-        "body_angular_velocities": target_motion.global_angular_velocity
+        "body_linear_velocities": target_motion.global_velocity[:, body_ids, :],
+        "body_angular_velocities": target_motion.global_angular_velocity[:,body_ids,:]
     }
 
 
@@ -300,11 +314,11 @@ def npy_from_fbx(fbx_file):
             "Skeleton_LeftArm": "left_shoulder_pitch_link",
             # "Skeleton_LeftArm": "left_shoulder_yaw_link",
             "Skeleton_LeftForeArm": "left_elbow_link",
-            "Skeleton_LeftHand": "left_rubber_hand",
+            "Skeleton_LeftHand": "left_wrist_pitch_link",
             "Skeleton_RightArm": "right_shoulder_pitch_link",
             # "Skeleton_RightArm": "right_shoulder_yaw_link",
             "Skeleton_RightForeArm": "right_elbow_link",
-            "Skeleton_RightHand": "right_rubber_hand",
+            "Skeleton_RightHand": "right_wrist_pitch_link",
             # extra mapping for hotu_humanoid_w_qbhand.xml
             # "Skeleton_LeftHandThumb1": "left_qbhand_thumb_knuckle_link",
             # "Skeleton_LeftHandThumb2": "left_qbhand_thumb_proximal_link",
