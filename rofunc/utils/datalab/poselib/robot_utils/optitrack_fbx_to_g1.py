@@ -198,6 +198,10 @@ def motion_retargeting(retarget_cfg, source_motion, visualize=False):
 
     dof_states = _run_sim(target_motion)
     dof_states = np.array(dof_states.cpu().numpy())
+
+    print(f"dof_states shape: {dof_states.shape}")
+    print(f"dof_states sample: {dof_states[0]}") # first frame
+
     np.save(retarget_cfg["target_dof_states_path"], dof_states)
     rf.logger.beauty_print(f"Saved G1 dof_states to {retarget_cfg['target_motion_path']}", type="module")
 
@@ -250,31 +254,26 @@ def motion_retargeting(retarget_cfg, source_motion, visualize=False):
     ]
     body_names = np.array(body_names, dtype=np.str_)
 
+    # get body IDs for the bodies that we want to track
+    body_ids = []
+    for body_name in body_names:
+        try:
+            body_id = target_motion.skeleton_tree._node_indices[body_name]
+            body_ids.append(body_id)
+        except KeyError:
+            print(f"Warning: Body {body_name} not found in skeleton tree")
 
-#     data_dict = {
-# "fps": target_motion.fps,  # Fixed syntax error (had colon instead of quotes)
-# "dof_names": dof_names,
-# "body_names": body_names,
-# "dof_positions": dof_states[:, :29],  # First 29 values are positions
-# "dof_velocities": dof_states[:, 29:],  # Last 29 values are velocities
-# "body_positions": target_motion.global_translation[:, body_ids, :],  # Get positions for specific bodies
-# "body_rotations": target_motion.global_rotation[:, body_ids, :],  # Get rotations for specific bodies
-# "body_linear_velocities": target_motion.global_velocity[:, body_ids, :],  # Linear velocities
-# "body_angular_velocities": target_motion.global_angular_velocity[:, body_ids, :]  # Angular velocities
-# }
-
-
-    # data_dict = {
-    #     "fps": target_motion.fps,
-    #     "dof_names": dof_names,
-    #     "body_names": body_names,
-    #     "dof_positions": dof_states[:, :29],  # First 29 values are positions,
-    #     "dof_velocities": dof_states[:, 29:],
-    #     "body_positions": ,
-    #     "body_rotations": ,
-    #     "body_linear_velocities": target_motion.global_velocity,
-    #     "body_angular_velocities": target_motion.global_angular_velocity
-    # }
+    data_dict = {
+        "fps": target_motion.fps,
+        "dof_names": dof_names,
+        "body_names": body_names,
+        "dof_positions": dof_states[:, :29],  # First 29 values are positions,
+        "dof_velocities": dof_states[:, 29:], # Last 29 values are velocities
+        "body_positions": ,
+        "body_rotations": ,
+        "body_linear_velocities": target_motion.global_velocity[:, body_ids, :],
+        "body_angular_velocities": target_motion.global_angular_velocity[:,body_ids,:]
+    }
 
 
 def npy_from_fbx(fbx_file):
