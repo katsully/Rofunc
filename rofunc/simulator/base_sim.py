@@ -174,6 +174,10 @@ class RobotSim:
                                                                               "simulator/assets")
         self.robot_asset_file = self.args.env.asset.assetFile
 
+        print(self.args)
+        print("ASSET ROOT")
+        print(self.robot_asset_root)
+
         asset_options = gymapi.AssetOptions()
         asset_options.fix_base_link = self.args.env.asset.fix_base_link
         asset_options.disable_gravity = self.args.env.asset.disable_gravity
