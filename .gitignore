@@ -209,3 +209,4 @@ examples/data/
 *.fbx
 *.npy
 *.npz
+*.txt
