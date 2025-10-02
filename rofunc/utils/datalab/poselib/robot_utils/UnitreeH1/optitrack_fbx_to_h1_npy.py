@@ -17,7 +17,7 @@
 Attention: Since the Autodesk FBX SDK just supports Python 3.7, this script should be run with Python 3.7.
 """
 
-import isaacgym
+# import isaacgym
 import multiprocessing
 import os
 import sys
@@ -325,7 +325,7 @@ if __name__ == '__main__':
     # fbx_files = ["/home/ubuntu/Data/2023_11_15_HED/has_gloves/New Session-009.fbx"]
     # fbx_files = [os.path.join(rofunc_path, "../examples/data/hotu/test_data_01_xsens.fbx")]
 
-    fbx_file.replace('_optitrack.fbx', '_optitrack2h1_dof_states.npy')
+    fbx_file.replace('_optitrack.fbx', '_optitrack2h1_dof_states.npy'
 
     npy_from_fbx(fbx_file)
 

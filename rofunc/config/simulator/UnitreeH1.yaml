@@ -8,7 +8,7 @@ cam_pos: [-3.0, 0.0, 2.0]
 cam_target: [0.0, 0.0, 1.0]
 
 env:
-  numEnvs: 1
+  numEnvs: 16
   envSpacing: 1
   numEnvPerRow: 1
 

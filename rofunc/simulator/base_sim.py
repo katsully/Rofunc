@@ -326,7 +326,7 @@ class RobotSim:
         """
         from isaacgym import gymapi
         from isaacgym import gymutil
-        print("HERE")
+
         # Attractor setup
         attractor_handles = []
         attractor_properties = gymapi.AttractorProperties()
