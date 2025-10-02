@@ -32,6 +32,18 @@ from rofunc.utils.datalab.poselib.poselib.visualization.common import plot_skele
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+def quaternion_multiply(q1, q2):
+    """Multiply quaternions q1 * q2 (w, x, y, z format)"""
+    w1, x1, y1, z1 = q1[..., 0], q1[..., 1], q1[..., 2], q1[..., 3]
+    w2, x2, y2, z2 = q2[..., 0], q2[..., 1], q2[..., 2], q2[..., 3]
+
+    w = w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2
+    x = w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2
+    y = w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2
+    z = w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2
+
+    return np.stack([w, x, y, z], axis=-1)
+
 
 def _run_sim(motion):
     from isaacgym import gymapi
@@ -102,7 +114,7 @@ def _run_sim(motion):
     return dof_states
 
 
-def motion_from_fbx(fbx_file_path, root_joint, fps=60, visualize=True):
+def motion_from_fbx(fbx_file_path, root_joint, fps, visualize=True):
     # import fbx file - make sure to provide a valid joint name for root_joint
     motion = SkeletonMotion.from_fbx(
         fbx_file_path=fbx_file_path,
@@ -125,7 +137,7 @@ def motion_retargeting(retarget_cfg, source_motion, visualize=False):
 
     target_tpose = SkeletonState.from_file(retarget_cfg["target_tpose"])
     if visualize:
-        rf.logger.beauty_print("Plot H1 T-pose", type="module")
+        rf.logger.beauty_print("Plot G1 T-pose", type="module")
         plot_skeleton_state(target_tpose, verbose=True)
 
     # parse data from retarget config
@@ -140,6 +152,9 @@ def motion_retargeting(retarget_cfg, source_motion, visualize=False):
         rotation_to_target_skeleton=rotation_to_target_skeleton,
         scale_to_target_skeleton=retarget_cfg["scale"]
     )
+    print("TARGET MOTION")
+    print(target_motion)
+    print(dir(target_motion))
 
     # state = SkeletonState.from_rotation_and_root_translation(target_motion.skeleton_tree, target_motion.rotation[0],
     #                                                          target_motion.root_translation[0], is_local=True)
@@ -188,6 +203,25 @@ def motion_retargeting(retarget_cfg, source_motion, visualize=False):
                                                                     root_translation, is_local=True)
     target_motion = SkeletonMotion.from_skeleton_state(new_sk_state, fps=target_motion.fps)
 
+    # 1. Check skeleton tree structure and joint names
+    print("=== Target Motion Skeleton Info ===")
+    print("Number of joints:", target_motion.num_joints)
+    print("\nSkeleton tree nodes:")
+    for i, node in enumerate(target_motion.skeleton_tree._nodes):
+        print(f"Index {i}: {node}")
+
+    # 2. Check the shape of the motion data
+    print("\n=== Motion Data Shapes ===")
+    print("Local rotation shape:", target_motion.local_rotation.shape)
+    print("Global translation shape:", target_motion.global_translation.shape)
+    print("Root translation shape:", target_motion.root_translation.shape)
+    print("FPS:", target_motion.fps)
+
+    # 3. Get the actual joint rotations (local)
+    # This is what we'll need to feed to Pinocchio
+    local_rotations = target_motion.local_rotation  # Should be (num_frames, num_joints, 4)
+    print("\nLocal rotations shape:", local_rotations.shape)
+
     # save retargeted motion
     target_motion.to_file(retarget_cfg["target_motion_path"])
 
@@ -198,9 +232,6 @@ def motion_retargeting(retarget_cfg, source_motion, visualize=False):
 
     dof_states = _run_sim(target_motion)
     dof_states = np.array(dof_states.cpu().numpy())
-
-    print(f"dof_states shape: {dof_states.shape}")
-    print(f"dof_states sample: {dof_states[0]}") # first frame
 
     np.save(retarget_cfg["target_dof_states_path"], dof_states)
     rf.logger.beauty_print(f"Saved G1 dof_states to {retarget_cfg['target_motion_path']}", type="module")
@@ -263,17 +294,82 @@ def motion_retargeting(retarget_cfg, source_motion, visualize=False):
         except KeyError:
             print(f"Warning: Body {body_name} not found in skeleton tree")
 
+    # extract DOF positions and velocities
+    dof_positions = dof_states[:,:,0]
+    dof_velocities = dof_states[:,:,1]
+
+    # convert everything to numpy arrays with proper types
+    if torch.is_tensor(dof_positions):
+        dof_positions = dof_positions.cpu().numpy().astype(np.float32)
+    if torch.is_tensor(dof_velocities):
+        dof_velocities = dof_velocities.cpu().numpy().astype(np.float32)
+
+    # Get ALL body data directly from the motion object
+    all_body_ids = list(range(target_motion.global_translation.shape[1]))
+    all_body_positions = target_motion.global_translation.cpu().numpy().astype(np.float32)
+    all_body_rotations = target_motion.global_rotation.cpu().numpy().astype(np.float32)
+
+    # adjust height if needd
+    all_body_positions[:,:,2] += 0.06
+
+    # get velocities
+    all_body_linear_velocities = target_motion.global_velocity.cpu().numpy().astype(np.float32)
+    all_body_angular_velocities = target_motion.global_angular_velocity.cpu().numpy().astype(np.float32)
+
     data_dict = {
-        "fps": target_motion.fps,
-        "dof_names": dof_names,
-        "body_names": body_names,
-        "dof_positions": dof_states[:, :29],  # First 29 values are positions,
-        "dof_velocities": dof_states[:, 29:], # Last 29 values are velocities
-        "body_positions": ,
-        "body_rotations": ,
-        "body_linear_velocities": target_motion.global_velocity[:, body_ids, :],
-        "body_angular_velocities": target_motion.global_angular_velocity[:,body_ids,:]
+        "fps": np.float32(target_motion.fps),
+        "dof_names": np.array(joint_names, dtype=np.str_),
+        "body_names": np.array(body_names, dtype=np.str_),
+        "dof_positions": dof_positions,
+        "dof_velocities": dof_velocities,
+        "body_positions": all_body_positions[:, body_ids, :],
+        "body_rotations": all_body_rotations[:, body_ids, :],
+        "body_linear_velocities": all_body_linear_velocities[:, body_ids, :],
+        "body_angular_velocities": all_body_angular_velocities[:, body_ids, :]
     }
+
+    # Transform data from IsaacGym (Y-up, X-forward) to IsaacSim (Z-up, X-forward)
+    transformed = data_dict.copy()
+
+    # Transform body positions: (X, Y, Z) → (X, -Z, Y)
+    pos = data_dict["body_positions"].copy()
+    transformed["body_positions"] = np.zeros_like(pos)
+    transformed["body_positions"][..., 0] = pos[..., 0]  # X stays X
+    transformed["body_positions"][..., 1] = -pos[..., 2]  # -Z -> Y
+    transformed["body_positions"][..., 2] = pos[..., 1]  # Y -> Z
+
+    # Transform body linear velocities (same as positions)
+    vel = data_dict["body_linear_velocities"].copy()
+    transformed["body_linear_velocities"] = np.zeros_like(vel)
+    transformed["body_linear_velocities"][..., 0] = vel[..., 0]
+    transformed["body_linear_velocities"][..., 1] = -vel[..., 2]
+    transformed["body_linear_velocities"][..., 2] = vel[..., 1]
+
+    # Transform body angular velocities (same axis swap)
+    ang_vel = data_dict["body_angular_velocities"].copy()
+    transformed["body_angular_velocities"] = np.zeros_like(ang_vel)
+    transformed["body_angular_velocities"][..., 0] = ang_vel[..., 0]
+    transformed["body_angular_velocities"][..., 1] = -ang_vel[..., 2]
+    transformed["body_angular_velocities"][..., 2] = ang_vel[..., 1]
+
+    # rotation quaternion for -90 degrees around the X-axis (converts Y-up to Z-up)
+    # q = [cos(θ/2), sin(θ/2)*x, sin(θ/2)*y, sin(θ/2)*z]
+    # For -90° around X: θ = -π/2
+    rotation_quat = np.array([np.cos(-np.pi/4), np.sin(-np.pi/4), 0, 0])  # [w, x, y, z]
+
+    # transform all body rotations
+    rot = data_dict["body_rotations"].copy() # Shape: (frames, bodies, 4)
+    transformed["body_rotations"] = np.zeros_like(rot)
+
+    # apply rotation to each quaterion
+    for i in range(rot.shape[0]): # for each frame
+        for j in range(rot.shape[1]): # for each body
+            transformed["body_rotations"][i,j] = quaternion_multiply(rotation_quat, rot[i,j])
+
+    # save as NPZ file
+    npz_path = retarget_cfg["target_motion_path"].replace('.npy', '.npz')
+    np.savez(npz_path, **transformed)
+    rf.logger.beauty_print(f"Saved G1 motion data to {npz_path}", type="module")
 
 
 def npy_from_fbx(fbx_file):

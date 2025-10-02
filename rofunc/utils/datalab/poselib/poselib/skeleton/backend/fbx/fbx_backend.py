@@ -49,8 +49,6 @@ except ImportError as e:
     print("FBX Python SDK must be installed")
 
 def fbx_to_npy(file_name_in, root_joint_name, fps):
-    print("fbx to npy")
-    print(root_joint_name)
     """
     This function reads in an fbx file, and saves the relevant info to a numpy array
 
