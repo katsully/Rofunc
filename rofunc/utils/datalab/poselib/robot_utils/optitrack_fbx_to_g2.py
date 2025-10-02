@@ -17,32 +17,267 @@
 Attention: Since the Autodesk FBX SDK just supports Python 3.7, this script should be run with Python 3.7.
 """
 
-import isaacgym
-import multiprocessing
+# import isaacgym
+# import multiprocessing
 import os
 import sys
+from scipy.ndimage import gaussian_filter1d
+from scipy.spatial.transform import Rotation as R
+import pinocchio as pin
+from pinocchio.robot_wrapper import RobotWrapper
+import torch
 
-import numpy as np
+def quaternion_to_euler(q, order='xyz'):
+    """Convert quaternion (w,x,y,z) to Euler angles"""
+    # Create Rotation object from quaternion (scipy expects x,y,z,w)
+    r = R.from_quat([q[1], q[2], q[3], q[0]])
+    return r.as_euler(order)
 
-import rofunc as rf
-from rofunc.utils.datalab.poselib.poselib.core.rotation3d import *
-from rofunc.utils.datalab.poselib.poselib.skeleton.skeleton3d import SkeletonState, SkeletonMotion
-from rofunc.utils.datalab.poselib.poselib.visualization.common import plot_skeleton_motion_interactive, \
-    plot_skeleton_state
+def compute_angular_velocity(q_prev, q_next, dt, eps=1e-8):
+    """Compute angular velocity from adjacent quaternions"""
+    # Convert to scipy format (x,y,z,w)
+    q_prev_scipy = np.array([q_prev[1], q_prev[2], q_prev[3], q_prev[0]])
+    q_next_scipy = np.array([q_next[1], q_next[2], q_next[3], q_next[0]])
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    # Create rotation objects
+    r_prev = R.from_quat(q_prev_scipy)
+    r_next = R.from_quat(q_next_scipy)
 
-def quaternion_multiply(q1, q2):
-    """Multiply quaternions q1 * q2 (w, x, y, z format)"""
-    w1, x1, y1, z1 = q1[..., 0], q1[..., 1], q1[..., 2], q1[..., 3]
-    w2, x2, y2, z2 = q2[..., 0], q2[..., 1], q2[..., 2], q2[..., 3]
+    # Compute relative rotation
+    r_rel = r_prev.inv() * r_next
 
-    w = w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2
-    x = w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2
-    y = w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2
-    z = w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2
+    # Get rotation vector (axis * angle)
+    rotvec = r_rel.as_rotvec()
 
-    return np.stack([w, x, y, z], axis=-1)
+    # Angular velocity is rotation vector divided by time
+    return rotvec / dt
+
+def retargeted_motion_to_npz(target_motion, retarget_cfg, urdf_path, mesh_dir):
+    """Convert retargeted motion to NPZ format for IsaacSim"""
+
+    # Extract motion data
+    fps = int(target_motion.fps)
+    dt = 1.0 / fps
+
+    # Get dimensions
+    num_frames = target_motion.local_rotation.shape[0]
+    num_joints = target_motion.num_joints
+
+    print(f"Processing {num_frames} frames at {fps} fps")
+    print(f"Number of joints in skeleton: {num_joints}")
+
+    # Define URDF joint names (from your second script)
+    joint_names = [
+        "left_hip_pitch_joint",
+        "left_hip_roll_joint",
+        "left_hip_yaw_joint",
+        "left_knee_joint",
+        "left_ankle_pitch_joint",
+        "left_ankle_roll_joint",
+        "right_hip_pitch_joint",
+        "right_hip_roll_joint",
+        "right_hip_yaw_joint",
+        "right_knee_joint",
+        "right_ankle_pitch_joint",
+        "right_ankle_roll_joint",
+        "waist_yaw_joint",
+        "waist_roll_joint",
+        "waist_pitch_joint",
+        "left_shoulder_pitch_joint",
+        "left_shoulder_roll_joint",
+        "left_shoulder_yaw_joint",
+        "left_elbow_joint",
+        "left_wrist_roll_joint",
+        "left_wrist_pitch_joint",
+        "left_wrist_yaw_joint",
+        "right_shoulder_pitch_joint",
+        "right_shoulder_roll_joint",
+        "right_shoulder_yaw_joint",
+        "right_elbow_joint",
+        "right_wrist_roll_joint",
+        "right_wrist_pitch_joint",
+        "right_wrist_yaw_joint"
+    ]
+
+    # Get root motion (pelvis)
+    root_translation = target_motion.root_translation.numpy()  # (N, 3)
+    root_rotation = target_motion.global_rotation[:, 0].numpy()  # (N, 4) - quaternion of root
+
+    # Get joint rotations - we need to convert from quaternions to joint angles
+    # This is the tricky part - we need to extract the actual joint angles
+    # For now, let's use the local rotations and convert them to Euler angles
+    local_rotations = target_motion.local_rotation.numpy()  # (N, num_joints, 4)
+
+    # Initialize joint positions array
+    num_dof = len(joint_names)
+    dof_positions = np.zeros((num_frames, num_dof), dtype=np.float32)
+
+    # Map skeleton joints to URDF joints
+    # This mapping depends on your skeleton structure - you'll need to adjust
+    # For now, I'll create a basic mapping based on common joint order
+    joint_mapping = {
+        # Legs
+        "left_hip_pitch_joint": 7,  # Adjust these indices based on your skeleton
+        "left_hip_roll_joint": 8,
+        "left_hip_yaw_joint": 9,
+        "left_knee_joint": 10,
+        "left_ankle_pitch_joint": 11,
+        "left_ankle_roll_joint": 12,
+        "right_hip_pitch_joint": 1,
+        "right_hip_roll_joint": 2,
+        "right_hip_yaw_joint": 3,
+        "right_knee_joint": 4,
+        "right_ankle_pitch_joint": 5,
+        "right_ankle_roll_joint": 6,
+        # Torso
+        "waist_yaw_joint": 13,
+        "waist_roll_joint": 14,
+        "waist_pitch_joint": 15,
+        # Arms
+        "left_shoulder_pitch_joint": 19,
+        "left_shoulder_roll_joint": 20,
+        "left_shoulder_yaw_joint": 21,
+        "left_elbow_joint": 22,
+        "left_wrist_roll_joint": 23,
+        "left_wrist_pitch_joint": 24,
+        "left_wrist_yaw_joint": 25,
+        "right_shoulder_pitch_joint": 16,
+        "right_shoulder_roll_joint": 17,
+        "right_shoulder_yaw_joint": 18,
+        "right_elbow_joint": 19,
+        "right_wrist_roll_joint": 26,
+        "right_wrist_pitch_joint": 27,
+        "right_wrist_yaw_joint": 28,
+    }
+
+    # Convert quaternions to joint angles
+    # This is simplified - in reality you'd need proper FK/IK
+    for i, joint_name in enumerate(joint_names):
+        if joint_name in joint_mapping:
+            joint_idx = joint_mapping[joint_name]
+            if joint_idx < num_joints:
+                # Extract rotation for this joint
+                joint_quats = local_rotations[:, joint_idx, :]
+                
+                # Convert to Euler angles (simplified - assumes single-axis joints)
+                for frame in range(num_frames):
+                    euler = quaternion_to_euler(joint_quats[frame])
+                    # For single-DOF joints, extract the appropriate angle
+                    if 'pitch' in joint_name or 'elbow' in joint_name or 'knee' in joint_name:
+                        dof_positions[frame, i] = euler[1]  # Y-axis
+                    elif 'roll' in joint_name:
+                        dof_positions[frame, i] = euler[0]  # X-axis
+                    elif 'yaw' in joint_name:
+                        dof_positions[frame, i] = euler[2]  # Z-axis
+
+    # Calculate joint velocities
+    dof_velocities = np.zeros_like(dof_positions)
+    if num_frames > 1:
+        dof_velocities[1:-1] = (dof_positions[2:] - dof_positions[:-2]) / (2 * dt)
+        dof_velocities[0] = (dof_positions[1] - dof_positions[0]) / dt
+        dof_velocities[-1] = (dof_positions[-1] - dof_positions[-2]) / dt
+    dof_velocities = gaussian_filter1d(dof_velocities, sigma=1, axis=0)
+
+    # Body names for forward kinematics
+    body_names = [
+        "pelvis",
+        "left_shoulder_pitch_link",
+        "right_shoulder_pitch_link", 
+        "left_elbow_link",
+        "right_elbow_link",
+        "right_hip_yaw_link",
+        "left_hip_yaw_link",
+        "right_rubber_hand",
+        "left_rubber_hand",
+        "right_ankle_roll_link",
+        "left_ankle_roll_link",
+        "left_shoulder_yaw_link",
+        "right_shoulder_yaw_link",
+        "torso_link",
+        "right_knee_link",
+        "left_knee_link"
+    ]
+
+    # Build Pinocchio robot
+    robot = RobotWrapper.BuildFromURDF(urdf_path, mesh_dir, pin.JointModelFreeFlyer())
+    model = robot.model
+    data = robot.data
+
+    # Initialize output arrays
+    B = len(body_names)
+    body_positions = np.zeros((num_frames, B, 3), dtype=np.float32)
+    body_rotations = np.zeros((num_frames, B, 4), dtype=np.float32)
+
+    # Perform forward kinematics for each frame
+    q = pin.neutral(model)
+
+    for frame_idx in range(num_frames):
+        # Set floating base pose
+        q[0:3] = root_translation[frame_idx]
+        # Convert quaternion from (w,x,y,z) to (x,y,z,w) for Pinocchio
+        root_q = root_rotation[frame_idx]
+        q[3:7] = np.array([root_q[1], root_q[2], root_q[3], root_q[0]])
+        
+        # Set joint positions
+        q[7:7+num_dof] = dof_positions[frame_idx]
+        
+        # Forward kinematics
+        pin.forwardKinematics(model, data, q)
+        pin.updateFramePlacements(model, data)
+        
+        # Extract body poses
+        for j, body_name in enumerate(body_names):
+            try:
+                frame_id = model.getFrameId(body_name)
+                tf = data.oMf[frame_id]
+                
+                # Position
+                body_positions[frame_idx, j] = tf.translation
+                
+                # Rotation (convert back to w,x,y,z)
+                quat = pin.Quaternion(tf.rotation)
+                body_rotations[frame_idx, j] = np.array([quat.w, quat.x, quat.y, quat.z])
+            except:
+                print(f"Warning: Could not find frame {body_name}")
+
+    # Calculate body velocities
+    body_linear_velocities = np.zeros_like(body_positions)
+    if num_frames > 1:
+        body_linear_velocities[1:-1] = (body_positions[2:] - body_positions[:-2]) / (2 * dt)
+        body_linear_velocities[0] = (body_positions[1] - body_positions[0]) / dt
+        body_linear_velocities[-1] = (body_positions[-1] - body_positions[-2]) / dt
+    body_linear_velocities = gaussian_filter1d(body_linear_velocities, sigma=1, axis=0)
+
+    # Angular velocities
+    body_angular_velocities = np.zeros((num_frames, B, 3), dtype=np.float32)
+    for j in range(B):
+        for k in range(1, num_frames - 1):
+            body_angular_velocities[k, j] = compute_angular_velocity(
+                body_rotations[k-1, j], body_rotations[k+1, j], 2*dt
+            )
+        if num_frames > 1:
+            body_angular_velocities[0, j] = compute_angular_velocity(
+                body_rotations[0, j], body_rotations[1, j], dt
+            )
+            body_angular_velocities[-1, j] = compute_angular_velocity(
+                body_rotations[-2, j], body_rotations[-1, j], dt
+            )
+    body_angular_velocities = gaussian_filter1d(body_angular_velocities, sigma=1, axis=0)
+
+    # Create output dictionary
+    data_dict = {
+        "fps": fps,
+        "dof_names": np.array(joint_names, dtype=np.str_),
+        "body_names": np.array(body_names, dtype=np.str_),
+        "dof_positions": dof_positions,
+        "dof_velocities": dof_velocities,
+        "body_positions": body_positions,
+        "body_rotations": body_rotations,
+        "body_linear_velocities": body_linear_velocities,
+        "body_angular_velocities": body_angular_velocities
+    }
+
+    return data_dict
 
 
 def _run_sim(motion):
@@ -114,7 +349,7 @@ def _run_sim(motion):
     return dof_states
 
 
-def motion_from_fbx(fbx_file_path, root_joint, fps, visualize=True):
+def motion_from_fbx(fbx_file_path, root_joint, fps=60, visualize=True):
     # import fbx file - make sure to provide a valid joint name for root_joint
     motion = SkeletonMotion.from_fbx(
         fbx_file_path=fbx_file_path,
@@ -137,7 +372,7 @@ def motion_retargeting(retarget_cfg, source_motion, visualize=False):
 
     target_tpose = SkeletonState.from_file(retarget_cfg["target_tpose"])
     if visualize:
-        rf.logger.beauty_print("Plot G1 T-pose", type="module")
+        rf.logger.beauty_print("Plot H1 T-pose", type="module")
         plot_skeleton_state(target_tpose, verbose=True)
 
     # parse data from retarget config
@@ -152,9 +387,6 @@ def motion_retargeting(retarget_cfg, source_motion, visualize=False):
         rotation_to_target_skeleton=rotation_to_target_skeleton,
         scale_to_target_skeleton=retarget_cfg["scale"]
     )
-    print("TARGET MOTION")
-    print(target_motion)
-    print(dir(target_motion))
 
     # state = SkeletonState.from_rotation_and_root_translation(target_motion.skeleton_tree, target_motion.rotation[0],
     #                                                          target_motion.root_translation[0], is_local=True)
@@ -203,12 +435,16 @@ def motion_retargeting(retarget_cfg, source_motion, visualize=False):
                                                                     root_translation, is_local=True)
     target_motion = SkeletonMotion.from_skeleton_state(new_sk_state, fps=target_motion.fps)
 
-    # 1. Check skeleton tree structure and joint names
+    # 1. Check skeleton tree structure
     print("=== Target Motion Skeleton Info ===")
     print("Number of joints:", target_motion.num_joints)
-    print("\nSkeleton tree nodes:")
-    for i, node in enumerate(target_motion.skeleton_tree._nodes):
-        print(f"Index {i}: {node}")
+    print("Skeleton tree:", target_motion.skeleton_tree)
+
+    # Try to access joint names if available
+    if hasattr(target_motion.skeleton_tree, 'node_names'):
+        print("\nJoint names:")
+    for i, name in enumerate(target_motion.skeleton_tree.node_names):
+        print(f"Index {i}: {name}")
 
     # 2. Check the shape of the motion data
     print("\n=== Motion Data Shapes ===")
@@ -217,161 +453,24 @@ def motion_retargeting(retarget_cfg, source_motion, visualize=False):
     print("Root translation shape:", target_motion.root_translation.shape)
     print("FPS:", target_motion.fps)
 
-    # 3. Get the actual joint rotations (local)
-    # This is what we'll need to feed to Pinocchio
-    local_rotations = target_motion.local_rotation  # Should be (num_frames, num_joints, 4)
-    print("\nLocal rotations shape:", local_rotations.shape)
+    # 3. Print the joint mapping from the retargeting config
+    print("\n=== Joint Mapping ===")
+    for opti_name, g1_name in config["joint_mapping"].items():
+        print(f"{opti_name} -> {g1_name}")
+
 
     # save retargeted motion
     target_motion.to_file(retarget_cfg["target_motion_path"])
-
-    if visualize:
-        # visualize retargeted motion
-        rf.logger.beauty_print("Plot G1 skeleton motion", type="module")
-        plot_skeleton_motion_interactive(target_motion, verbose=False)
-
-    dof_states = _run_sim(target_motion)
-    dof_states = np.array(dof_states.cpu().numpy())
-
-    np.save(retarget_cfg["target_dof_states_path"], dof_states)
-    rf.logger.beauty_print(f"Saved G1 dof_states to {retarget_cfg['target_motion_path']}", type="module")
-
-    joint_names = [
-        "left_hip_pitch_joint",
-        "left_hip_roll_joint",
-        "left_hip_yaw_joint",
-        "left_knee_joint",
-        "left_ankle_pitch_joint",
-        "left_ankle_roll_joint",
-        "right_hip_pitch_joint",
-        "right_hip_roll_joint",
-        "right_hip_yaw_joint",
-        "right_knee_joint",
-        "right_ankle_pitch_joint",
-        "right_ankle_roll_joint",
-        "waist_yaw_joint",
-        "waist_roll_joint",
-        "waist_pitch_joint",
-        "left_shoulder_pitch_joint",
-        "left_shoulder_roll_joint",
-        "left_shoulder_yaw_joint",
-        "left_elbow_joint",
-        "left_wrist_roll_joint",
-        "left_wrist_pitch_joint",
-        "left_wrist_yaw_joint",
-        "right_shoulder_pitch_joint",
-        "right_shoulder_roll_joint",
-        "right_shoulder_yaw_joint",
-        "right_elbow_joint",
-        "right_wrist_roll_joint",
-        "right_wrist_pitch_joint",
-        "right_wrist_yaw_joint"
-    ]
-    dof_names = np.array(joint_names, dtype=np.str_)
-
-    body_names = [
-        "pelvis", 
-        # "head_link",
-        "left_shoulder_pitch_link",
-        "right_shoulder_pitch_link",
-        "left_elbow_link",
-        "right_elbow_link",
-        "right_hip_yaw_link",
-        "left_hip_yaw_link",
-        "right_wrist_pitch_link",
-        "left_wrist_pitch_link",
-        "right_ankle_pitch_link",
-        "left_ankle_pitch_link"
-    ]
-    body_names = np.array(body_names, dtype=np.str_)
-
-    # get body IDs for the bodies that we want to track
-    body_ids = []
-    for body_name in body_names:
-        try:
-            body_id = target_motion.skeleton_tree._node_indices[body_name]
-            body_ids.append(body_id)
-        except KeyError:
-            print(f"Warning: Body {body_name} not found in skeleton tree")
-
-    # extract DOF positions and velocities
-    dof_positions = dof_states[:,:,0]
-    dof_velocities = dof_states[:,:,1]
-
-    # convert everything to numpy arrays with proper types
-    if torch.is_tensor(dof_positions):
-        dof_positions = dof_positions.cpu().numpy().astype(np.float32)
-    if torch.is_tensor(dof_velocities):
-        dof_velocities = dof_velocities.cpu().numpy().astype(np.float32)
-
-    # Get ALL body data directly from the motion object
-    all_body_ids = list(range(target_motion.global_translation.shape[1]))
-    all_body_positions = target_motion.global_translation.cpu().numpy().astype(np.float32)
-    all_body_rotations = target_motion.global_rotation.cpu().numpy().astype(np.float32)
-
-    # adjust height if needd
-    all_body_positions[:,:,2] += 0.06
-
-    # get velocities
-    all_body_linear_velocities = target_motion.global_velocity.cpu().numpy().astype(np.float32)
-    all_body_angular_velocities = target_motion.global_angular_velocity.cpu().numpy().astype(np.float32)
-
-    data_dict = {
-        "fps": np.float32(target_motion.fps),
-        "dof_names": np.array(joint_names, dtype=np.str_),
-        "body_names": np.array(body_names, dtype=np.str_),
-        "dof_positions": dof_positions,
-        "dof_velocities": dof_velocities,
-        "body_positions": all_body_positions[:, body_ids, :],
-        "body_rotations": all_body_rotations[:, body_ids, :],
-        "body_linear_velocities": all_body_linear_velocities[:, body_ids, :],
-        "body_angular_velocities": all_body_angular_velocities[:, body_ids, :]
-    }
-
-    # Transform data from IsaacGym (Y-up, X-forward) to IsaacSim (Z-up, X-forward)
-    transformed = data_dict.copy()
-
-    # Transform body positions: (X, Y, Z) → (X, -Z, Y)
-    pos = data_dict["body_positions"].copy()
-    transformed["body_positions"] = np.zeros_like(pos)
-    transformed["body_positions"][..., 0] = pos[..., 0]  # X stays X
-    transformed["body_positions"][..., 1] = -pos[..., 2]  # -Z -> Y
-    transformed["body_positions"][..., 2] = pos[..., 1]  # Y -> Z
-
-    # Transform body linear velocities (same as positions)
-    vel = data_dict["body_linear_velocities"].copy()
-    transformed["body_linear_velocities"] = np.zeros_like(vel)
-    transformed["body_linear_velocities"][..., 0] = vel[..., 0]
-    transformed["body_linear_velocities"][..., 1] = -vel[..., 2]
-    transformed["body_linear_velocities"][..., 2] = vel[..., 1]
-
-    # Transform body angular velocities (same axis swap)
-    ang_vel = data_dict["body_angular_velocities"].copy()
-    transformed["body_angular_velocities"] = np.zeros_like(ang_vel)
-    transformed["body_angular_velocities"][..., 0] = ang_vel[..., 0]
-    transformed["body_angular_velocities"][..., 1] = -ang_vel[..., 2]
-    transformed["body_angular_velocities"][..., 2] = ang_vel[..., 1]
-
-    # rotation quaternion for -90 degrees around the X-axis (converts Y-up to Z-up)
-    # q = [cos(θ/2), sin(θ/2)*x, sin(θ/2)*y, sin(θ/2)*z]
-    # For -90° around X: θ = -π/2
-    rotation_quat = np.array([np.cos(-np.pi/4), np.sin(-np.pi/4), 0, 0])  # [w, x, y, z]
-
-    # transform all body rotations
-    rot = data_dict["body_rotations"].copy() # Shape: (frames, bodies, 4)
-    transformed["body_rotations"] = np.zeros_like(rot)
-
-    # apply rotation to each quaterion
-    for i in range(rot.shape[0]): # for each frame
-        for j in range(rot.shape[1]): # for each body
-            transformed["body_rotations"][i,j] = quaternion_multiply(rotation_quat, rot[i,j])
+    urdf_path = os.path.join(rofunc_path, "simulator/assets/urdf/unitreeG1/g1_29dof.urdf")
+    mesh_dir = os.path.join(rofunc_path, "simulator/assets/urdf/unitreeG1/meshes/")
+    data_dict = retargeted_motion_to_npz(target_motion, retarget_cfg, urdf_path, mesh_dir)
 
     # save as NPZ file
     npz_path = retarget_cfg["target_motion_path"].replace('.npy', '.npz')
-    np.savez(npz_path, **transformed)
+    np.savez(npz_path, **data_dict)
     rf.logger.beauty_print(f"Saved G1 motion data to {npz_path}", type="module")
 
-
+   
 def npy_from_fbx(fbx_file):
     """
     This scripts shows how to retarget a motion clip from the source skeleton to a target skeleton.
