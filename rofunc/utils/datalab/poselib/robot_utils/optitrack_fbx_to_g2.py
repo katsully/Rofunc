@@ -26,6 +26,14 @@ from scipy.spatial.transform import Rotation as R
 import pinocchio as pin
 from pinocchio.robot_wrapper import RobotWrapper
 import torch
+import rofunc as rf
+import numpy as np
+from rofunc.utils.datalab.poselib.poselib.core.rotation3d import *
+from rofunc.utils.datalab.poselib.poselib.skeleton.skeleton3d import SkeletonState, SkeletonMotion
+from rofunc.utils.datalab.poselib.poselib.visualization.common import plot_skeleton_motion_interactive, \
+    plot_skeleton_state
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 def quaternion_to_euler(q, order='xyz'):
     """Convert quaternion (w,x,y,z) to Euler angles"""
@@ -292,38 +300,13 @@ def _run_sim(motion):
                   "left_knee_link": gymapi.AXIS_ALL, "right_knee_link": gymapi.AXIS_ALL,
                   "left_ankle_pitch_link": gymapi.AXIS_ALL, "right_ankle_pitch_link": gymapi.AXIS_ALL}
     body_ids = [motion.skeleton_tree._node_indices[link] for link in body_links.keys()]
-    # hand_links = ["right_qbhand_root_link", "left_qbhand_root_link",
-    #               "left_qbhand_thumb_knuckle_link", "left_qbhand_thumb_proximal_link",
-    #               "left_qbhand_thumb_distal_link", "left_qbhand_index_proximal_link",
-    #               "left_qbhand_index_middle_link", "left_qbhand_index_distal_link",
-    #               "left_qbhand_middle_proximal_link", "left_qbhand_middle_middle_link",
-    #               "left_qbhand_middle_distal_link", "left_qbhand_ring_proximal_link",
-    #               "left_qbhand_ring_middle_link", "left_qbhand_ring_distal_link",
-    #               "left_qbhand_little_proximal_link", "left_qbhand_little_middle_link",
-    #               "left_qbhand_little_distal_link",
-    #               "right_qbhand_thumb_knuckle_link", "right_qbhand_thumb_proximal_link",
-    #               "right_qbhand_thumb_distal_link", "right_qbhand_index_proximal_link",
-    #               "right_qbhand_index_middle_link", "right_qbhand_index_distal_link",
-    #               "right_qbhand_middle_proximal_link", "right_qbhand_middle_middle_link",
-    #               "right_qbhand_middle_distal_link", "right_qbhand_ring_proximal_link",
-    #               "right_qbhand_ring_middle_link", "right_qbhand_ring_distal_link",
-    #               "right_qbhand_little_proximal_link", "right_qbhand_little_middle_link",
-    #               "right_qbhand_little_distal_link"]
-    # hand_ids = [motion.skeleton_tree._node_indices[link] for link in hand_links]
-
-    # all_links = body_links + hand_links
-    # all_ids = body_ids + hand_ids
+ 
     all_links = list(body_links.keys())
     all_ids = body_ids
     all_types = list(body_links.values())
 
     motion_rb_states_pos = motion.global_translation
     motion_rb_states_rot = motion.global_rotation
-
-    # motion_rb_states_rot[:, hand_ids] = quat_mul(
-    #     torch.tensor([0, 0.707, 0, 0.707]),
-    #     motion_rb_states_rot[:, hand_ids]
-    # )
 
     motion_rb_states_pos[:, :, 2] += 0.06
     motion_rb_states = torch.cat([motion_rb_states_pos, motion_rb_states_rot], dim=-1)
@@ -388,11 +371,6 @@ def motion_retargeting(retarget_cfg, source_motion, visualize=False):
         scale_to_target_skeleton=retarget_cfg["scale"]
     )
 
-    # state = SkeletonState.from_rotation_and_root_translation(target_motion.skeleton_tree, target_motion.rotation[0],
-    #                                                          target_motion.root_translation[0], is_local=True)
-    # plot_skeleton_state(state, verbose=True)
-    # plot_skeleton_motion_interactive(target_motion)
-
     # keep frames between [trim_frame_beg, trim_frame_end - 1]
     frame_beg = retarget_cfg["trim_frame_beg"]
     frame_end = retarget_cfg["trim_frame_end"]
@@ -453,16 +431,12 @@ def motion_retargeting(retarget_cfg, source_motion, visualize=False):
     print("Root translation shape:", target_motion.root_translation.shape)
     print("FPS:", target_motion.fps)
 
-    # 3. Print the joint mapping from the retargeting config
-    print("\n=== Joint Mapping ===")
-    for opti_name, g1_name in config["joint_mapping"].items():
-        print(f"{opti_name} -> {g1_name}")
 
 
     # save retargeted motion
     target_motion.to_file(retarget_cfg["target_motion_path"])
-    urdf_path = os.path.join(rofunc_path, "simulator/assets/urdf/unitreeG1/g1_29dof.urdf")
-    mesh_dir = os.path.join(rofunc_path, "simulator/assets/urdf/unitreeG1/meshes/")
+    urdf_path = os.path.join(rofunc_path, "simulator/assets/urdf/unitreeG1/urdf/g1_29dof.urdf")
+    mesh_dir = os.path.join(rofunc_path, "simulator/assets/urdf/unitreeG1")
     data_dict = retargeted_motion_to_npz(target_motion, retarget_cfg, urdf_path, mesh_dir)
 
     # save as NPZ file
@@ -514,37 +488,6 @@ def npy_from_fbx(fbx_file):
             # "Skeleton_RightArm": "right_shoulder_yaw_link",
             "Skeleton_RightForeArm": "right_elbow_link",
             "Skeleton_RightHand": "right_wrist_pitch_link",
-            # extra mapping for hotu_humanoid_w_qbhand.xml
-            # "Skeleton_LeftHandThumb1": "left_qbhand_thumb_knuckle_link",
-            # "Skeleton_LeftHandThumb2": "left_qbhand_thumb_proximal_link",
-            # "Skeleton_LeftHandThumb3": "left_qbhand_thumb_distal_link",
-            # "Skeleton_LeftHandIndex1": "left_qbhand_index_proximal_link",
-            # "Skeleton_LeftHandIndex2": "left_qbhand_index_middle_link",
-            # "Skeleton_LeftHandIndex3": "left_qbhand_index_distal_link",
-            # "Skeleton_LeftHandMiddle1": "left_qbhand_middle_proximal_link",
-            # "Skeleton_LeftHandMiddle2": "left_qbhand_middle_middle_link",
-            # "Skeleton_LeftHandMiddle3": "left_qbhand_middle_distal_link",
-            # "Skeleton_LeftHandRing1": "left_qbhand_ring_proximal_link",
-            # "Skeleton_LeftHandRing2": "left_qbhand_ring_middle_link",
-            # "Skeleton_LeftHandRing3": "left_qbhand_ring_distal_link",
-            # "Skeleton_LeftHandPinky1": "left_qbhand_little_proximal_link",
-            # "Skeleton_LeftHandPinky2": "left_qbhand_little_middle_link",
-            # "Skeleton_LeftHandPinky3": "left_qbhand_little_distal_link",
-            # "Skeleton_RightHandThumb1": "right_qbhand_thumb_knuckle_link",
-            # "Skeleton_RightHandThumb2": "right_qbhand_thumb_proximal_link",
-            # "Skeleton_RightHandThumb3": "right_qbhand_thumb_distal_link",
-            # "Skeleton_RightHandIndex1": "right_qbhand_index_proximal_link",
-            # "Skeleton_RightHandIndex2": "right_qbhand_index_middle_link",
-            # "Skeleton_RightHandIndex3": "right_qbhand_index_distal_link",
-            # "Skeleton_RightHandMiddle1": "right_qbhand_middle_proximal_link",
-            # "Skeleton_RightHandMiddle2": "right_qbhand_middle_middle_link",
-            # "Skeleton_RightHandMiddle3": "right_qbhand_middle_distal_link",
-            # "Skeleton_RightHandRing1": "right_qbhand_ring_proximal_link",
-            # "Skeleton_RightHandRing2": "right_qbhand_ring_middle_link",
-            # "Skeleton_RightHandRing3": "right_qbhand_ring_distal_link",
-            # "Skeleton_RightHandPinky1": "right_qbhand_little_proximal_link",
-            # "Skeleton_RightHandPinky2": "right_qbhand_little_middle_link",
-            # "Skeleton_RightHandPinky3": "right_qbhand_little_distal_link",
         },
         # "rotation": [0.707, 0, 0, 0.707], xyzw
         "rotation": [0.5, 0.5, 0.5, 0.5],
@@ -584,30 +527,5 @@ if __name__ == '__main__':
     rofunc_path = rf.oslab.get_rofunc_path()
     fbx_file = args.fbx_file
 
-    # if args.fbx_dir is not None:
-    #     fbx_dir = args.fbx_dir
-    #     fbx_files = rf.oslab.list_absl_path(fbx_dir, suffix='.fbx')
-    # elif args.fbx_file is not None:
-    #     fbx_files = [args.fbx_file]
-    # else:
-    #     raise ValueError("Please provide a valid fbx_dir or fbx_file.")
-    # fbx_dir = os.path.join(rofunc_path, "../examples/data/hotu")
-    # fbx_dir = "/home/ubuntu/Data/2023_11_15_HED/has_gloves"
-    # fbx_files = rf.oslab.list_absl_path(fbx_dir, suffix='.fbx')
-    # fbx_files = ["/home/ubuntu/Data/2023_11_15_HED/has_gloves/New Session-009.fbx"]
-    # fbx_files = [os.path.join(rofunc_path, "../examples/data/hotu/test_data_01_xsens.fbx")]
-
-    # from tqdm import tqdm
-
     npy_from_fbx(fbx_file)
 
-    # if args.parallel:
-    #     pool = multiprocessing.Pool()
-    #     pool.map(npy_from_fbx, fbx_files)
-    # else:
-    #     with tqdm(total=len(fbx_files)) as pbar:
-    #         for fbx_file in fbx_files:
-    #             if os.path.exists(fbx_file.replace('_optitrack.fbx', '_optitrack2h1_dof_states.npy')):
-    #                 continue
-    #             npy_from_fbx(fbx_file)
-    #             pbar.update(1)
